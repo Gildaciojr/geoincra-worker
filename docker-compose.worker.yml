@@ -8,8 +8,12 @@ services:
     volumes:
       - geoincra_uploads:/data
     networks:
-      - default
+      - backend_default
 
 volumes:
   geoincra_uploads:
+    external: true
+
+networks:
+  backend_default:
     external: true
