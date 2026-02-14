@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Dependências de sistema (Playwright)
 RUN apt-get update && apt-get install -y \
     wget \
     libnss3 \
@@ -15,10 +16,15 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
+# Dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
+# Código
 COPY app ./app
+
+# 🔑 CORREÇÃO CRÍTICA
+ENV PYTHONPATH=/app
 
 CMD ["python", "app/main.py"]
