@@ -1,0 +1,15 @@
+services:
+  geoincra_worker:
+    build: .
+    container_name: geoincra_worker
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://geoincra_user:domboscojacutinga33@geoincra_postgres:5432/geoincra_db
+    volumes:
+      - geoincra_uploads:/data
+    networks:
+      - default
+
+volumes:
+  geoincra_uploads:
+    external: true
