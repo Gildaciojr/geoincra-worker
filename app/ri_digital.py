@@ -1,9 +1,10 @@
+# geoincra_worker/app/ri_digital.py
 from playwright.sync_api import sync_playwright, TimeoutError
 from datetime import datetime
 import os
 import time
 
-from app.settings import DOWNLOAD_DIR
+from app.settings import RI_DIGITAL_DIR
 from app.db import insert_result
 
 
@@ -11,7 +12,8 @@ PLAYWRIGHT_TIMEOUT = 60_000  # 60s
 
 
 def executar_ri_digital(job, credenciais):
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    # 📂 Garante diretório de saída
+    os.makedirs(RI_DIGITAL_DIR, exist_ok=True)
 
     data_inicio = datetime.fromisoformat(job["payload_json"]["data_inicio"])
     data_fim = datetime.fromisoformat(job["payload_json"]["data_fim"])
@@ -21,7 +23,7 @@ def executar_ri_digital(job, credenciais):
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--disable-dev-shm-usage"]
+            args=["--disable-dev-shm-usage"],
         )
 
         context = browser.new_context(accept_downloads=True)
@@ -32,7 +34,10 @@ def executar_ri_digital(job, credenciais):
         # LOGIN
         # =========================
         print("🔐 Acessando RI Digital...")
-        page.goto("https://ridigital.org.br/Acesso.aspx", wait_until="domcontentloaded")
+        page.goto(
+            "https://ridigital.org.br/Acesso.aspx",
+            wait_until="domcontentloaded",
+        )
 
         page.locator("text=Acesso comum").first.click()
         page.fill("input[type=email]", credenciais["login"])
@@ -45,9 +50,14 @@ def executar_ri_digital(job, credenciais):
         # =========================
         # VISUALIZAÇÃO DE MATRÍCULAS
         # =========================
-        page.goto("https://ridigital.org.br/ServicosOnline.aspx", wait_until="domcontentloaded")
+        page.goto(
+            "https://ridigital.org.br/ServicosOnline.aspx",
+            wait_until="domcontentloaded",
+        )
 
-        page.locator("text=Visualização de matrícula").first.wait_for(timeout=PLAYWRIGHT_TIMEOUT)
+        page.locator("text=Visualização de matrícula").first.wait_for(
+            timeout=PLAYWRIGHT_TIMEOUT
+        )
         page.locator("text=Visualização de matrícula").first.click()
 
         page.wait_for_selector("table", timeout=PLAYWRIGHT_TIMEOUT)
@@ -78,7 +88,6 @@ def executar_ri_digital(job, credenciais):
                     continue
 
                 abrir_btn.click()
-
                 page.wait_for_selector("a", timeout=PLAYWRIGHT_TIMEOUT)
 
                 with page.expect_download(timeout=PLAYWRIGHT_TIMEOUT) as download_info:
@@ -87,7 +96,7 @@ def executar_ri_digital(job, credenciais):
                 download = download_info.value
 
                 filename = f"{protocolo}_{matricula}.pdf".replace("/", "_")
-                file_path = os.path.join(DOWNLOAD_DIR, filename)
+                file_path = os.path.join(RI_DIGITAL_DIR, filename)
                 download.save_as(file_path)
 
                 insert_result(
