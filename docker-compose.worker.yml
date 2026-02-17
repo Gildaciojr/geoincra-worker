@@ -3,16 +3,42 @@ services:
     build: .
     container_name: geoincra_worker
     restart: always
+
     environment:
+      # =========================
+      # DATABASE
+      # =========================
       DATABASE_URL: postgresql://geoincra_user:domboscojacutinga33@geoincra_postgres:5432/geoincra_db
+
+      # =========================
+      # VOLUME COMPARTILHADO
+      # - Worker monta em /data
+      # - Backend monta o MESMO volume em /app/app/uploads
+      # =========================
+      DATA_DIR: /data
+      BACKEND_UPLOADS_BASE: /app/app/uploads
+
+      # =========================
+      # ONR / SIG-RI — CERTIFICADO DIGITAL A1
+      # ⚠️ ESTE CAMINHO PRECISA EXISTIR DENTRO DO CONTAINER
+      # =========================
+      ONR_PFX_PATH: /data/certs/onr_cert.pfx
+
+      # 🔐 SENHA DO CERTIFICADO A1
+      # 👉 A senha REAL que você digitou no openssl
+      ONR_PFX_PASSWORD: "Yeshua33"
+
     volumes:
       - geoincra_uploads:/data
+
     networks:
       - backend_default
+
 
 volumes:
   geoincra_uploads:
     external: true
+
 
 networks:
   backend_default:
