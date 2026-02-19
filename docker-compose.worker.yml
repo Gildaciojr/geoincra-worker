@@ -5,6 +5,7 @@ services:
     restart: always
 
     environment:
+      PYTHONUNBUFFERED: "1"   # ✅ OBRIGATÓRIO (logs em tempo real)
       # =========================
       # DATABASE
       # =========================
