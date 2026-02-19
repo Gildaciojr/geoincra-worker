@@ -19,7 +19,10 @@ RUN apt-get update && apt-get install -y \
 # Dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ⚠️ MUITO IMPORTANTE: depois de instalar o playwright
 RUN playwright install chromium
+
 
 # Código
 COPY app ./app
