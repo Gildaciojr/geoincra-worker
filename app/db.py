@@ -25,6 +25,7 @@ def fetch_pending_job():
                     SELECT id
                     FROM automation_jobs
                     WHERE status = 'PENDING'
+                      AND type = 'RI_DIGITAL_MATRICULA'
                     ORDER BY created_at
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
@@ -34,6 +35,7 @@ def fetch_pending_job():
             job = cur.fetchone()
             conn.commit()
             return job
+
 
 
 def fetch_ri_digital_credentials(user_id: int):
