@@ -187,14 +187,11 @@ def executar_ri_digital(job: dict, cred: dict):
                 cartorio = cells.nth(4).inner_text().strip()
 
                 # =================================================
-                # 4) ABRIR PEDIDO (ÍCONE "Abrir Mat." = <a><img ...pasta.gif>)
+                # 4) ABRIR PEDIDO (ÍCONE "Abrir Mat." = img pasta.gif)
                 # =================================================
-                abrir_a = cells.nth(0).locator("a").first
-                try:
-                    abrir_a.click(timeout=20_000)
-                except Exception:
-                    # fallback: clicar na célula inteira
-                    cells.nth(0).click(force=True, timeout=20_000)
+                abrir_img = cells.nth(0).locator("img[src*='pasta.gif']").first
+                abrir_img.wait_for(state="visible", timeout=20_000)
+                abrir_img.click(force=True)
 
                 page.wait_for_url("**/PedidoFinalizadoVM.aspx**", timeout=PLAYWRIGHT_TIMEOUT)
                 page.wait_for_timeout(400)
