@@ -258,90 +258,97 @@ def executar_ri_digital(job: dict, cred: dict):
             matricula = cells.nth(3).inner_text().strip()
             cartorio = cells.nth(4).inner_text().strip()
 
-            # =================================================
-            # 4) ABRIR PEDIDO (ÍCONE "Abrir Mat." = <a><img ...pasta.gif>)
-            # =================================================
-            abrir_a = cells.nth(0).locator("a").first
-            abrir_a.wait_for(state="attached", timeout=CLICK_TIMEOUT)
-            try:
-                abrir_a.click(timeout=CLICK_TIMEOUT)
-            except Exception:
-                cells.nth(0).click(force=True, timeout=CLICK_TIMEOUT)
+    # =================================================
+    # 4) ABRIR PEDIDO (ÍCONE "Abrir Mat." = <a><img ...pasta.gif>)
+    # =================================================
+    abrir_link = cells.nth(0).locator("a").first
+    abrir_link.wait_for(state="attached", timeout=CLICK_TIMEOUT)
 
-            page.wait_for_url("**/PedidoFinalizadoVM.aspx**", timeout=PLAYWRIGHT_TIMEOUT)
-            page.wait_for_timeout(400)
-            _save_debug(page, job_id, f"pedido_{i}")
+    try:
+        abrir_link.click(timeout=CLICK_TIMEOUT)
+    except Exception:
+        cells.nth(0).click(force=True, timeout=CLICK_TIMEOUT)
 
-            # =================================================
-            # 5) EXTRAI NÚMERO DO PEDIDO VMxxxxxx
-            # =================================================
-            body_text = page.locator("body").inner_text(timeout=CLICK_TIMEOUT)
-            numero_pedido = _extract_vm_number_from_body(body_text) or protocolo
+    page.wait_for_url("**/PedidoFinalizadoVM.aspx**", timeout=PLAYWRIGHT_TIMEOUT)
+    page.wait_for_timeout(400)
+    _save_debug(page, job_id, f"pedido_{i}")
 
-            # =================================================
-            # 6) TENTAR BAIXAR PDF (BEST-EFFORT — NUNCA QUEBRA JOB)
-            # =================================================
-            filename = f"{numero_pedido}_{matricula}.pdf".replace("/", "_").replace("\\", "_")
-            worker_path = os.path.join(RI_DIGITAL_DIR, filename)
-            backend_path = _as_backend_path(worker_path)
+    # =================================================
+    # 5) EXTRAI NÚMERO DO PEDIDO VMxxxxxx
+    # =================================================
+    body_text = page.locator("body").inner_text(timeout=CLICK_TIMEOUT)
+    numero_pedido = _extract_vm_number_from_body(body_text) or protocolo
 
-            pdf_ok = False
-            pdf_motivo = None
-            final_file_path = None
-            doc_id = None
+    # =================================================
+    # 6) TENTAR GERAR PDF (BEST-EFFORT — NÃO QUEBRA)
+    # =================================================
+    filename = f"{numero_pedido}_{matricula}.pdf".replace("/", "_").replace("\\", "_")
+    worker_path = os.path.join(RI_DIGITAL_DIR, filename)
+    backend_path = _as_backend_path(worker_path)
 
-            try:
-                with page.expect_download(timeout=15_000) as dl_info:
-                    page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
+    pdf_ok = False
+    pdf_motivo = None
+    final_file_path = None
+    doc_id = None
 
-                download = dl_info.value
-                download.save_as(worker_path)
+    try:
+        page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
 
-                pdf_ok = True
-                final_file_path = backend_path
+        try:
+            download = page.wait_for_event("download", timeout=8_000)
+            download.save_as(worker_path)
 
-                doc_id = _create_document_compat(
-                    job.get("project_id"),
-                    filename,
-                    backend_path,
-                )
+            pdf_ok = True
+            final_file_path = backend_path
 
-            except Exception:
-                pdf_ok = False
-                pdf_motivo = "PDF não disponível ou prazo expirado no RI Digital"
-
-            # =================================================
-            # 7) REGISTRA RESULTADO (SEMPRE)
-            # =================================================
-            insert_result(
-                job_id=job["id"],
-                data={
-                    "protocolo": protocolo,
-                    "matricula": matricula,
-                    "cartorio": cartorio,
-                    "data_pedido": data_pedido,
-                    "file_path": final_file_path,
-                    "metadata_json": {
-                        "fonte": "RI_DIGITAL",
-                        "numero_pedido_vm": numero_pedido,
-                        "pdf_status": "OK" if pdf_ok else "NAO_DISPONIVEL",
-                        "pdf_motivo": pdf_motivo,
-                        "document_id": doc_id,
-                        "data_consulta": data_pedido.isoformat(),
-                    },
-                },
+            doc_id = _create_document_compat(
+                job.get("project_id"),
+                filename,
+                backend_path,
             )
-            encontrados += 1
+        except Exception:
+            pdf_motivo = "PDF não disponível ou prazo expirado no RI Digital"
 
-            # volta para listagem
-            page.go_back()
-            page.wait_for_url("**/VisualizarMatricula/**", timeout=PLAYWRIGHT_TIMEOUT)
-            page.wait_for_selector("table", timeout=PLAYWRIGHT_TIMEOUT)
-            time.sleep(0.4)
+    except Exception:
+        pdf_motivo = "Erro ao acionar botão de geração do PDF"
 
-        browser.close()
+    # =================================================
+    # 7) REGISTRA RESULTADO (SEMPRE)
+    # =================================================
+    insert_result(
+        job_id=job["id"],
+        data={
+            "protocolo": protocolo,
+            "matricula": matricula,
+            "cartorio": cartorio,
+            "data_pedido": data_pedido,
+            "file_path": final_file_path,
+            "metadata_json": {
+                "fonte": "RI_DIGITAL",
+                "numero_pedido_vm": numero_pedido,
+                "pdf_status": "OK" if pdf_ok else "NAO_DISPONIVEL",
+                "pdf_motivo": pdf_motivo,
+                "document_id": doc_id,
+                "data_consulta": data_pedido.isoformat(),
+            },
+        },
+    )
 
-        if encontrados == 0:
+    encontrados += 1
+
+    # =================================================
+    # 8) VOLTAR PARA LISTAGEM (NUNCA usar go_back)
+    # =================================================
+    page.goto(
+        "https://ridigital.org.br/VisualizarMatricula/DefaultVM.aspx?from=menu",
+        wait_until="domcontentloaded",
+    )
+    page.wait_for_selector("table", timeout=PLAYWRIGHT_TIMEOUT)
+    time.sleep(0.4)
+
+    browser.close()
+
+    if encontrados == 0:
             raise Exception("Nenhuma matrícula encontrada no período informado")
 
-        print("🏁 RI Digital finalizado com sucesso")
+            print("🏁 RI Digital finalizado com sucesso")
