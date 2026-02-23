@@ -279,7 +279,7 @@ def executar_ri_digital(job: dict, cred: dict):
             numero_pedido = _extract_vm_number_from_body(body_text) or protocolo
 
             # =================================================
-            # 6) BAIXAR PDF (btnPDF) - robusto (download/popup/response)
+            # 6) BAIXAR PDF (OPCIONAL — NÃO QUEBRA JOB)
             # =================================================
             filename = f"{numero_pedido}_{matricula}.pdf".replace("/", "_").replace("\\", "_")
             worker_path = os.path.join(RI_DIGITAL_DIR, filename)
@@ -287,34 +287,38 @@ def executar_ri_digital(job: dict, cred: dict):
 
             pdf_bytes, source = _try_download_pdf(page, timeout_ms=PLAYWRIGHT_TIMEOUT)
 
+            pdf_ok = False
+            pdf_motivo = None
+            final_file_path = None
+            doc_id = None
+
             if source in ("download", "popup") and pdf_bytes is None:
-                # quando é download event, salvamos via download.save_as
-                # mas a função retornou None bytes, então repetimos a tentativa capturando o download
-                # (isso evita duplicar clique no fluxo normal, e garante o save_as aqui)
                 try:
                     with page.expect_download(timeout=PLAYWRIGHT_TIMEOUT) as dl_info:
                         page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
                     dl_info.value.save_as(worker_path)
+                    pdf_ok = True
                 except Exception:
-                    # se falhar aqui, tenta novamente via response
-                    pdf_bytes2, source2 = _try_download_pdf(page, timeout_ms=PLAYWRIGHT_TIMEOUT)
-                    if pdf_bytes2:
-                        with open(worker_path, "wb") as f:
-                            f.write(pdf_bytes2)
-                        source = source2
-                    else:
-                        raise Exception("Falha ao obter PDF (download/popup/response não retornaram PDF)")
+                    pdf_motivo = "PDF não disponível (prazo expirado no RI Digital)"
+
             elif pdf_bytes:
                 with open(worker_path, "wb") as f:
                     f.write(pdf_bytes)
-            else:
-                raise Exception("Falha ao obter PDF (download/popup/response não retornaram PDF)")
+                pdf_ok = True
 
-            # cria document (se suportado)
-            doc_id = _create_document_compat(job.get("project_id"), filename, backend_path)
+            else:
+                pdf_motivo = "PDF não disponível (plataforma RI Digital)"
+
+            if pdf_ok:
+                final_file_path = backend_path
+                doc_id = _create_document_compat(
+                    job.get("project_id"),
+                    filename,
+                    backend_path,
+                )
 
             # =================================================
-            # 7) REGISTRA RESULTADO
+            # 7) REGISTRA RESULTADO (SEMPRE)
             # =================================================
             insert_result(
                 job_id=job["id"],
@@ -323,17 +327,17 @@ def executar_ri_digital(job: dict, cred: dict):
                     "matricula": matricula,
                     "cartorio": cartorio,
                     "data_pedido": data_pedido,
-                    "file_path": backend_path,
+                    "file_path": final_file_path,
                     "metadata_json": {
                         "fonte": "RI_DIGITAL",
                         "numero_pedido_vm": numero_pedido,
+                        "pdf_status": "OK" if pdf_ok else "NAO_DISPONIVEL",
+                        "pdf_motivo": pdf_motivo,
                         "document_id": doc_id,
-                        "download_source": source,
                         "data_consulta": data_pedido.isoformat(),
                     },
                 },
             )
-
             encontrados += 1
 
             # volta para listagem
