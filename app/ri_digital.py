@@ -3,12 +3,9 @@ import os
 import re
 import time
 from datetime import datetime, date
-from typing import Optional, Tuple
+from typing import Optional
 
-from playwright.sync_api import (
-    sync_playwright,
-    TimeoutError as PlaywrightTimeoutError,
-)
+from playwright.sync_api import sync_playwright
 
 from app.settings import RI_DIGITAL_DIR, BACKEND_UPLOADS_BASE
 from app.db import insert_result, create_document
@@ -82,82 +79,18 @@ def _extract_vm_number_from_body(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _try_download_pdf(page, timeout_ms: int) -> Tuple[Optional[bytes], Optional[str]]:
+def _goto_listagem(page, job_id: str):
     """
-    Tenta obter o PDF de 3 formas:
-    1) download event (Playwright)
-    2) popup/new page (PDF abre em nova aba)
-    3) response com content-type application/pdf (inline)
-    Retorna: (pdf_bytes, source) onde source = "download" | "popup" | "response"
+    Volta para a listagem de Visualização de Matrícula de forma estável.
+    Nunca usar go_back() (evita invalid state).
     """
-    # Botão real do PDF (seu print): <input type="image" id="btnPDF">
-    btn_pdf = page.locator("#btnPDF")
-
-    # Garantir que estamos na página correta antes de clicar
-    btn_pdf.wait_for(state="visible", timeout=timeout_ms)
-
-    # 1) Tenta como download
-    try:
-        with page.expect_download(timeout=timeout_ms) as dl_info:
-            btn_pdf.click(force=True, timeout=CLICK_TIMEOUT)
-
-        download = dl_info.value
-        # Se for download mesmo, Playwright salva via download.save_as
-        # Aqui retornamos None bytes e marcamos como "download"
-        return (None, "download")
-    except PlaywrightTimeoutError:
-        pass
-
-    # 2) Tenta como popup (nova aba)
-    try:
-        with page.expect_popup(timeout=10_000) as pop:
-            btn_pdf.click(force=True, timeout=CLICK_TIMEOUT)
-
-        popup = pop.value
-        popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
-
-        # popup pode disparar download ou pode abrir PDF inline
-        try:
-            with popup.expect_download(timeout=10_000) as dl2:
-                # às vezes precisa clicar de novo no popup, mas normalmente não
-                pass
-            _ = dl2.value
-            return (None, "popup")
-        except Exception:
-            # tenta capturar o conteúdo do PDF via response/URL
-            # se a URL do popup já for um PDF, tenta baixar via request
-            url = popup.url
-            if url:
-                try:
-                    resp = popup.request.get(url, timeout=timeout_ms)
-                    ct = (resp.headers.get("content-type") or "").lower()
-                    if "pdf" in ct or url.lower().endswith(".pdf"):
-                        return (resp.body(), "popup")
-                except Exception:
-                    pass
-    except PlaywrightTimeoutError:
-        pass
-
-    # 3) Tenta via response (inline)
-    def _is_pdf_response(resp) -> bool:
-        try:
-            ct = (resp.headers.get("content-type") or "").lower()
-            if "application/pdf" in ct:
-                return True
-            # fallback por URL
-            u = (resp.url or "").lower()
-            return ".pdf" in u
-        except Exception:
-            return False
-
-    try:
-        with page.expect_response(_is_pdf_response, timeout=timeout_ms) as resp_info:
-            btn_pdf.click(force=True, timeout=CLICK_TIMEOUT)
-
-        resp = resp_info.value
-        return (resp.body(), "response")
-    except PlaywrightTimeoutError:
-        return (None, None)
+    page.goto(
+        "https://ridigital.org.br/VisualizarMatricula/DefaultVM.aspx?from=menu",
+        wait_until="domcontentloaded",
+    )
+    page.wait_for_selector("table", timeout=PLAYWRIGHT_TIMEOUT)
+    _save_debug(page, job_id, "listagem")
+    page.wait_for_timeout(250)
 
 
 # =========================================================
@@ -170,6 +103,7 @@ def executar_ri_digital(job: dict, cred: dict):
     if not payload.get("data_inicio") or not payload.get("data_fim"):
         raise Exception("Payload inválido: data_inicio/data_fim ausentes")
 
+    # payload vem ISO (backend), ex: 2026-02-20T00:00:00
     data_inicio = datetime.fromisoformat(payload["data_inicio"])
     data_fim = datetime.fromisoformat(payload["data_fim"])
 
@@ -178,177 +112,202 @@ def executar_ri_digital(job: dict, cred: dict):
     if not login or not senha:
         raise Exception("Credenciais RI Digital inválidas")
 
-    print(f"▶️ RI Digital | Job {job.get('id')}")
+    job_id = str(job.get("id"))
+    print(f"▶️ RI Digital | Job {job_id}")
 
+    # IMPORTANTE: nunca deixar exceção sair do "with sync_playwright"
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
-
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
         page.set_default_timeout(PLAYWRIGHT_TIMEOUT)
         page.set_viewport_size({"width": 1440, "height": 900})
 
-        job_id = str(job.get("id"))
-
-        # =====================================================
-        # 1) LOGIN — FORMA REAL CONFIRMADA
-        # =====================================================
-        page.goto("https://ridigital.org.br/Acesso.aspx", wait_until="domcontentloaded")
-
-        # clique no link interno que intercepta o clique do texto/card
-        acesso_link = page.locator("a.access-details.acesso-comum-link").first
-        acesso_link.wait_for(state="visible", timeout=CLICK_TIMEOUT)
-        acesso_link.click(force=True, timeout=CLICK_TIMEOUT)
-
-        email_input = page.locator('input[placeholder="E-mail"]')
-        senha_input = page.locator('input[placeholder="Senha"]')
-
-        email_input.wait_for(state="visible", timeout=CLICK_TIMEOUT)
-        senha_input.wait_for(state="visible", timeout=CLICK_TIMEOUT)
-
-        email_input.fill(login)
-        senha_input.fill(senha)
-
-        page.get_by_role("button", name=re.compile(r"entrar", re.I)).click()
-
-        page.wait_for_url("**/ServicosOnline.aspx", timeout=PLAYWRIGHT_TIMEOUT)
-        print("✅ Login RI Digital realizado")
-        _save_debug(page, job_id, "apos_login")
-
-        # =====================================================
-        # 2) IR DIRETO PRA MATRÍCULAS (mais robusto que clicar card)
-        # =====================================================
-        page.goto(
-            "https://ridigital.org.br/VisualizarMatricula/DefaultVM.aspx?from=menu",
-            wait_until="domcontentloaded",
-        )
-        page.wait_for_url("**/VisualizarMatricula/**", timeout=PLAYWRIGHT_TIMEOUT)
-        page.wait_for_selector("table", timeout=PLAYWRIGHT_TIMEOUT)
-        _save_debug(page, job_id, "listagem")
-
-        rows = page.locator("table tbody tr")
-        total = rows.count()
-        if total == 0:
-            raise Exception("Tabela de matrículas vazia")
-
-        encontrados = 0
-
-        # =====================================================
-        # 3) VARREDURA DA TABELA
-        # =====================================================
-        for i in range(total):
-            row = rows.nth(i)
-            cells = row.locator("td")
-            if cells.count() < 6:
-                continue
-
-            # colunas reais: AbrirMat | Protocolo | Data | Matricula/CNM | Cartório | Valor | ...
-            try:
-                data_pedido = _parse_br_date(cells.nth(2).inner_text())
-            except Exception:
-                continue
-
-            if not _within_range(data_pedido, data_inicio, data_fim):
-                continue
-
-            protocolo = cells.nth(1).inner_text().strip()
-            matricula = cells.nth(3).inner_text().strip()
-            cartorio = cells.nth(4).inner_text().strip()
-
-    # =================================================
-    # 4) ABRIR PEDIDO (ÍCONE "Abrir Mat." = <a><img ...pasta.gif>)
-    # =================================================
-    abrir_link = cells.nth(0).locator("a").first
-    abrir_link.wait_for(state="attached", timeout=CLICK_TIMEOUT)
-
-    try:
-        abrir_link.click(timeout=CLICK_TIMEOUT)
-    except Exception:
-        cells.nth(0).click(force=True, timeout=CLICK_TIMEOUT)
-
-    page.wait_for_url("**/PedidoFinalizadoVM.aspx**", timeout=PLAYWRIGHT_TIMEOUT)
-    page.wait_for_timeout(400)
-    _save_debug(page, job_id, f"pedido_{i}")
-
-    # =================================================
-    # 5) EXTRAI NÚMERO DO PEDIDO VMxxxxxx
-    # =================================================
-    body_text = page.locator("body").inner_text(timeout=CLICK_TIMEOUT)
-    numero_pedido = _extract_vm_number_from_body(body_text) or protocolo
-
-    # =================================================
-    # 6) TENTAR GERAR PDF (BEST-EFFORT — NÃO QUEBRA)
-    # =================================================
-    filename = f"{numero_pedido}_{matricula}.pdf".replace("/", "_").replace("\\", "_")
-    worker_path = os.path.join(RI_DIGITAL_DIR, filename)
-    backend_path = _as_backend_path(worker_path)
-
-    pdf_ok = False
-    pdf_motivo = None
-    final_file_path = None
-    doc_id = None
-
-    try:
-        page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
-
         try:
-            download = page.wait_for_event("download", timeout=8_000)
-            download.save_as(worker_path)
+            # =====================================================
+            # 1) LOGIN — FORMA REAL CONFIRMADA
+            # =====================================================
+            page.goto("https://ridigital.org.br/Acesso.aspx", wait_until="domcontentloaded")
 
-            pdf_ok = True
-            final_file_path = backend_path
+            acesso_link = page.locator("a.access-details.acesso-comum-link").first
+            acesso_link.wait_for(state="visible", timeout=CLICK_TIMEOUT)
+            acesso_link.click(force=True, timeout=CLICK_TIMEOUT)
 
-            doc_id = _create_document_compat(
-                job.get("project_id"),
-                filename,
-                backend_path,
-            )
-        except Exception:
-            pdf_motivo = "PDF não disponível ou prazo expirado no RI Digital"
+            email_input = page.locator('input[placeholder="E-mail"]')
+            senha_input = page.locator('input[placeholder="Senha"]')
 
-    except Exception:
-        pdf_motivo = "Erro ao acionar botão de geração do PDF"
+            email_input.wait_for(state="visible", timeout=CLICK_TIMEOUT)
+            senha_input.wait_for(state="visible", timeout=CLICK_TIMEOUT)
 
-    # =================================================
-    # 7) REGISTRA RESULTADO (SEMPRE)
-    # =================================================
-    insert_result(
-        job_id=job["id"],
-        data={
-            "protocolo": protocolo,
-            "matricula": matricula,
-            "cartorio": cartorio,
-            "data_pedido": data_pedido,
-            "file_path": final_file_path,
-            "metadata_json": {
-                "fonte": "RI_DIGITAL",
-                "numero_pedido_vm": numero_pedido,
-                "pdf_status": "OK" if pdf_ok else "NAO_DISPONIVEL",
-                "pdf_motivo": pdf_motivo,
-                "document_id": doc_id,
-                "data_consulta": data_pedido.isoformat(),
-            },
-        },
-    )
+            email_input.fill(login)
+            senha_input.fill(senha)
 
-    encontrados += 1
+            page.get_by_role("button", name=re.compile(r"entrar", re.I)).click()
 
-    # =================================================
-    # 8) VOLTAR PARA LISTAGEM (NUNCA usar go_back)
-    # =================================================
-    page.goto(
-        "https://ridigital.org.br/VisualizarMatricula/DefaultVM.aspx?from=menu",
-        wait_until="domcontentloaded",
-    )
-    page.wait_for_selector("table", timeout=PLAYWRIGHT_TIMEOUT)
-    time.sleep(0.4)
+            # Evita travar em wait_for_url rígido (site pode variar redirecionamento)
+            page.wait_for_timeout(3000)
+            print("✅ Login RI Digital realizado | URL:", page.url)
+            _save_debug(page, job_id, "apos_login")
 
-    browser.close()
+            # =====================================================
+            # 2) IR DIRETO PRA LISTAGEM (Visualização de Matrícula)
+            # =====================================================
+            _goto_listagem(page, job_id)
 
-    if encontrados == 0:
-            raise Exception("Nenhuma matrícula encontrada no período informado")
+            rows = page.locator("table tbody tr")
+            total = rows.count()
+            if total == 0:
+                raise Exception("Tabela de matrículas vazia")
+
+            encontrados = 0
+
+            # =====================================================
+            # 3) VARREDURA DA TABELA (cada linha = 1 processo)
+            # =====================================================
+            for i in range(total):
+                # Recarrega rows a cada iteração para evitar stale handles
+                rows = page.locator("table tbody tr")
+                if rows.count() == 0:
+                    break
+
+                row = rows.nth(i)
+                cells = row.locator("td")
+                if cells.count() < 6:
+                    continue
+
+                # Inicializa variáveis para uso seguro no except
+                protocolo = None
+                matricula = None
+                cartorio = None
+                data_pedido = None
+
+                try:
+                    # colunas reais: AbrirMat | Protocolo | Data | Matricula/CNM | Cartório | Valor | ...
+                    data_pedido = _parse_br_date(cells.nth(2).inner_text())
+                    if not _within_range(data_pedido, data_inicio, data_fim):
+                        continue
+
+                    protocolo = cells.nth(1).inner_text().strip()
+                    matricula = cells.nth(3).inner_text().strip()
+                    cartorio = cells.nth(4).inner_text().strip()
+
+                    # =================================================
+                    # 4) ABRIR PEDIDO (clicar no "Abrir Mat." - pasta.gif)
+                    # =================================================
+                    abrir_link = cells.nth(0).locator("a").first
+                    abrir_link.wait_for(state="attached", timeout=CLICK_TIMEOUT)
+
+                    try:
+                        abrir_link.click(timeout=CLICK_TIMEOUT)
+                    except Exception:
+                        cells.nth(0).click(force=True, timeout=CLICK_TIMEOUT)
+
+                    page.wait_for_url("**/PedidoFinalizadoVM.aspx**", timeout=PLAYWRIGHT_TIMEOUT)
+                    page.wait_for_timeout(400)
+                    _save_debug(page, job_id, f"pedido_{i}")
+
+                    # =================================================
+                    # 5) EXTRAI NÚMERO DO PEDIDO (VMxxxxxx)
+                    # =================================================
+                    body_text = page.locator("body").inner_text(timeout=CLICK_TIMEOUT)
+                    numero_pedido = _extract_vm_number_from_body(body_text) or protocolo or f"pedido_{i}"
+
+                    # =================================================
+                    # 6) TENTAR GERAR/BAIXAR PDF (BEST-EFFORT — NÃO QUEBRA)
+                    # =================================================
+                    filename = f"{numero_pedido}_{(matricula or 'matricula')}.pdf".replace("/", "_").replace("\\", "_")
+                    worker_path = os.path.join(RI_DIGITAL_DIR, filename)
+                    backend_path = _as_backend_path(worker_path)
+
+                    pdf_ok = False
+                    pdf_motivo = None
+                    final_file_path = None
+                    doc_id = None
+
+                    try:
+                        page.locator("#btnPDF").wait_for(state="visible", timeout=CLICK_TIMEOUT)
+                        page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
+
+                        # Em casos de expiração o site mostra alert/modal e não dispara download.
+                        # Por isso o download é tentado de forma tolerante (sem expect_download rígido).
+                        try:
+                            download = page.wait_for_event("download", timeout=8_000)
+                            download.save_as(worker_path)
+
+                            pdf_ok = True
+                            final_file_path = backend_path
+
+                            doc_id = _create_document_compat(
+                                job.get("project_id"),
+                                filename,
+                                backend_path,
+                            )
+                        except Exception:
+                            pdf_motivo = "PDF não disponível ou prazo expirado no RI Digital"
+                    except Exception:
+                        pdf_motivo = "Erro ao acionar botão de geração do PDF"
+
+                    # =================================================
+                    # 7) REGISTRA RESULTADO (SEMPRE)
+                    # =================================================
+                    insert_result(
+                        job_id=job["id"],
+                        data={
+                            "protocolo": protocolo,
+                            "matricula": matricula,
+                            "cartorio": cartorio,
+                            "data_pedido": data_pedido,
+                            "file_path": final_file_path,  # pode ser None
+                            "metadata_json": {
+                                "fonte": "RI_DIGITAL",
+                                "numero_pedido_vm": numero_pedido,
+                                "pdf_status": "OK" if pdf_ok else "NAO_DISPONIVEL",
+                                "pdf_motivo": pdf_motivo,
+                                "document_id": doc_id,
+                                "data_consulta": (data_pedido.isoformat() if data_pedido else None),
+                            },
+                        },
+                    )
+                    encontrados += 1
+
+                except Exception as e:
+                    # Resultado parcial por linha (NUNCA quebra o job inteiro)
+                    insert_result(
+                        job_id=job["id"],
+                        data={
+                            "protocolo": protocolo,
+                            "matricula": matricula,
+                            "cartorio": cartorio,
+                            "data_pedido": data_pedido,
+                            "file_path": None,
+                            "metadata_json": {
+                                "fonte": "RI_DIGITAL",
+                                "erro_linha": str(e),
+                                "linha_index": i,
+                            },
+                        },
+                    )
+
+                # =================================================
+                # 8) VOLTAR PARA LISTAGEM (sempre por URL estável)
+                # =================================================
+                try:
+                    _goto_listagem(page, job_id)
+                except Exception:
+                    # se a navegação falhar aqui, deixamos estourar para o outer try
+                    raise
+
+            if encontrados == 0:
+                raise Exception("Nenhuma matrícula encontrada no período informado")
 
             print("🏁 RI Digital finalizado com sucesso")
+
+        finally:
+            # GARANTE que o Playwright fecha corretamente (evita event loop is closed no meio)
+            try:
+                browser.close()
+            except Exception:
+                pass
