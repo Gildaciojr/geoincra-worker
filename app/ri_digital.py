@@ -279,43 +279,36 @@ def executar_ri_digital(job: dict, cred: dict):
             numero_pedido = _extract_vm_number_from_body(body_text) or protocolo
 
             # =================================================
-            # 6) BAIXAR PDF (OPCIONAL — NÃO QUEBRA JOB)
+            # 6) TENTAR BAIXAR PDF (BEST-EFFORT — NUNCA QUEBRA JOB)
             # =================================================
             filename = f"{numero_pedido}_{matricula}.pdf".replace("/", "_").replace("\\", "_")
             worker_path = os.path.join(RI_DIGITAL_DIR, filename)
             backend_path = _as_backend_path(worker_path)
-
-            pdf_bytes, source = _try_download_pdf(page, timeout_ms=PLAYWRIGHT_TIMEOUT)
 
             pdf_ok = False
             pdf_motivo = None
             final_file_path = None
             doc_id = None
 
-            if source in ("download", "popup") and pdf_bytes is None:
-                try:
-                    with page.expect_download(timeout=PLAYWRIGHT_TIMEOUT) as dl_info:
-                        page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
-                    dl_info.value.save_as(worker_path)
-                    pdf_ok = True
-                except Exception:
-                    pdf_motivo = "PDF não disponível (prazo expirado no RI Digital)"
+            try:
+                with page.expect_download(timeout=15_000) as dl_info:
+                    page.locator("#btnPDF").click(force=True, timeout=CLICK_TIMEOUT)
 
-            elif pdf_bytes:
-                with open(worker_path, "wb") as f:
-                    f.write(pdf_bytes)
+                download = dl_info.value
+                download.save_as(worker_path)
+
                 pdf_ok = True
-
-            else:
-                pdf_motivo = "PDF não disponível (plataforma RI Digital)"
-
-            if pdf_ok:
                 final_file_path = backend_path
+
                 doc_id = _create_document_compat(
                     job.get("project_id"),
                     filename,
                     backend_path,
                 )
+
+            except Exception:
+                pdf_ok = False
+                pdf_motivo = "PDF não disponível ou prazo expirado no RI Digital"
 
             # =================================================
             # 7) REGISTRA RESULTADO (SEMPRE)
