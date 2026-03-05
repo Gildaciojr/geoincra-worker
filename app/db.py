@@ -8,6 +8,10 @@ def get_connection():
 
 
 def fetch_pending_job():
+    """
+    Pega o próximo job pendente (FIFO) dos tipos suportados pelo worker,
+    já marcando como PROCESSING e started_at.
+    """
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -18,7 +22,10 @@ def fetch_pending_job():
                     SELECT id
                     FROM automation_jobs
                     WHERE status = 'PENDING'
-                      AND type = 'RI_DIGITAL_MATRICULA'
+                      AND type IN (
+                          'RI_DIGITAL_MATRICULA',
+                          'RI_DIGITAL_SOLICITAR_CERTIDAO'
+                      )
                     ORDER BY created_at
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
@@ -31,6 +38,9 @@ def fetch_pending_job():
 
 
 def fetch_ri_digital_credentials(user_id: int):
+    """
+    Credenciais RI Digital armazenadas em external_credentials.
+    """
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -44,6 +54,9 @@ def fetch_ri_digital_credentials(user_id: int):
 
 
 def update_job_status(job_id, status, error_message=None):
+    """
+    Atualiza status do job e finaliza timestamps quando COMPLETED/FAILED.
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -60,6 +73,13 @@ def update_job_status(job_id, status, error_message=None):
 
 
 def create_document(project_id, filename, file_path):
+    """
+    Salva o PDF como Document do projeto (tabela documents).
+    Retorna document_id.
+    """
+    if not project_id:
+        return None
+
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -82,10 +102,14 @@ def create_document(project_id, filename, file_path):
             """, (project_id, filename, filename, file_path))
             doc = cur.fetchone()
             conn.commit()
-            return doc["id"]
+            return doc["id"] if doc else None
 
 
-def insert_result(job_id, data):
+def insert_result(job_id, data: dict):
+    """
+    Insere resultado genérico na automation_results.
+    Usa .get defensivo para evitar crash por campo ausente.
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -101,11 +125,11 @@ def insert_result(job_id, data):
                 VALUES (%s,%s,%s,%s,%s,%s,%s)
             """, (
                 job_id,
-                data["protocolo"],
-                data["matricula"],
-                data["cartorio"],
-                data["data_pedido"],
-                data["file_path"],
-                Json(data.get("metadata_json")),
+                data.get("protocolo"),
+                data.get("matricula"),
+                data.get("cartorio"),
+                data.get("data_pedido"),
+                data.get("file_path"),
+                Json(data.get("metadata_json") or {}),
             ))
             conn.commit()
