@@ -8,6 +8,7 @@ from app.db import (
 
 from app.ri_digital import executar_ri_digital
 from app.ri_digital_solicitar_certidao_worker import executar_job_ri_digital_solicitar_certidao
+from app.ocr_worker import executar_ocr_job
 
 
 def main():
@@ -54,6 +55,15 @@ def main():
                     cred["login"],
                     cred["password"]
                 )
+
+                update_job_status(job["id"], "COMPLETED")
+
+            # ------------------------------------------------
+            # OCR DOCUMENTOS (AUTOMAÇÃO 3)
+            # ------------------------------------------------
+            elif job_type == "OCR_DOCUMENT":
+
+                executar_ocr_job(job)
 
                 update_job_status(job["id"], "COMPLETED")
 
