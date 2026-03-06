@@ -53,7 +53,7 @@ def main():
                 executar_job_ri_digital_solicitar_certidao(
                     job,
                     cred["login"],
-                    cred["password"]
+                    cred["password_encrypted"]
                 )
 
                 update_job_status(job["id"], "COMPLETED")
