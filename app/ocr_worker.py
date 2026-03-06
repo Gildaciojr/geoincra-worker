@@ -2,11 +2,11 @@ import os
 import json
 import openai
 import psycopg2
-from psycopg2.extras import RealDictCursor
 
+from psycopg2.extras import RealDictCursor
 from google.cloud import vision
 
-from app.settings import DATABASE_URL
+from app.settings import DATABASE_URL, BACKEND_UPLOADS_BASE
 
 
 # =========================================================
@@ -86,7 +86,7 @@ def save_result(document_id, texto, dados_json):
                     created_at,
                     updated_at
                 )
-                VALUES (%s,'DONE','GOOGLE_VISION',%s,%s,NOW(),NOW())
+                VALUES (%s,'DONE','GOOGLE_VISION_OPENAI',%s,%s,NOW(),NOW())
             """, (
                 document_id,
                 texto,
@@ -142,7 +142,7 @@ def interpretar_texto(prompt, texto):
 
     try:
         return json.loads(content)
-    except:
+    except Exception:
         return {"resultado": content}
 
 
@@ -167,15 +167,36 @@ def executar_ocr_job(job):
     if not prompt:
         raise Exception("Prompt não encontrado")
 
-    file_path = doc["file_path"]
+    # -----------------------------------------------------
+    # RESOLVER CAMINHO ABSOLUTO DO ARQUIVO
+    # -----------------------------------------------------
+
+    relative_path = doc["file_path"]
+
+    file_path = os.path.join(BACKEND_UPLOADS_BASE, relative_path)
+
+    if not os.path.exists(file_path):
+        raise Exception(f"Arquivo não encontrado no container: {file_path}")
 
     print("📄 OCR Documento:", file_path)
+
+    # -----------------------------------------------------
+    # OCR GOOGLE VISION
+    # -----------------------------------------------------
 
     texto = extrair_texto_google(file_path)
 
     print("🧠 Interpretando com OpenAI")
 
+    # -----------------------------------------------------
+    # INTERPRETAÇÃO COM OPENAI
+    # -----------------------------------------------------
+
     dados = interpretar_texto(prompt["prompt"], texto)
+
+    # -----------------------------------------------------
+    # SALVAR RESULTADO
+    # -----------------------------------------------------
 
     save_result(document_id, texto, dados)
 

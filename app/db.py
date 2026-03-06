@@ -24,7 +24,8 @@ def fetch_pending_job():
                     WHERE status = 'PENDING'
                       AND type IN (
                           'RI_DIGITAL_MATRICULA',
-                          'RI_DIGITAL_SOLICITAR_CERTIDAO'
+                          'RI_DIGITAL_SOLICITAR_CERTIDAO',
+                        'OCR_DOCUMENT'
                       )
                     ORDER BY created_at
                     LIMIT 1
