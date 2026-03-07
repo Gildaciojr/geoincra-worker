@@ -114,13 +114,13 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             print("➡ Selecionando estado RO")
 
-            estado = page.locator("#svg-map-brasil text", has_text="RO")
+            estado = page.locator("#svg-map-brasil a:has(text:has-text('RO'))")
             estado.wait_for(timeout=60000)
             estado.click()
 
             print("✔ Estado selecionado")
 
-            # aguarda tela de termo aparecer
+            # aguarda tela do termo
             page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
 
             # ------------------------------------------------
