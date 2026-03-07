@@ -108,32 +108,38 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
-            print("➡ Carregando mapa do Brasil")
-            page.wait_for_selector("#svg-map-brasil", state="visible", timeout=60000)
+            print("➡ Aguardando mapa do Brasil")
 
-            print("➡ Selecionando estado RO")
-            estado = page.locator("text=RO").first
+            page.wait_for_selector("#svg-map-brasil", timeout=60000)
+
+            print("➡ Selecionando estado Rondônia")
+
+            estado = page.locator("#svg-map-brasil a.estado[name='Rondônia']")
             estado.wait_for(timeout=60000)
             estado.click()
 
-            page.wait_for_timeout(2000)
+            # aguarda postback ASP.NET carregar próxima tela
+            page.wait_for_load_state("networkidle")
 
-            print("➡ Prosseguindo após selecionar estado")
-            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
-            _wait_enabled(page, "#Contrato_btnGoNext", timeout=30000)
-            page.click("#Contrato_btnGoNext")
+            print("✔ Estado selecionado")
 
             # ------------------------------------------------
             # PASSO 04 — TELA TERMO
-            # Já vem com "Li e concordo" marcado.
-            # Aqui é somente clicar em Prosseguir.
             # ------------------------------------------------
-            print("➡ Tela de termo carregada")
-            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
-            _wait_enabled(page, "#Contrato_btnGoNext", timeout=30000)
+            print("➡ Aguardando tela de termo")
 
-            print("➡ Aceitando termo")
+            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
+
+            # garante que o botão está habilitado
+            page.wait_for_function(
+                "document.querySelector('#Contrato_btnGoNext') && !document.querySelector('#Contrato_btnGoNext').disabled"
+            )
+
+            print("➡ Prosseguindo no termo")
+
             page.click("#Contrato_btnGoNext")
+
+            # aguarda carregar próxima tela
             page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
