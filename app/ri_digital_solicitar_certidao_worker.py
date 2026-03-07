@@ -108,27 +108,20 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
-            print("➡ Aguardando iframe do mapa")
+            print("➡ Aguardando mapa do Brasil")
 
-            page.wait_for_selector("iframe", timeout=60000)
-
-            # pega o primeiro iframe da página
-            frame = page.frame_locator("iframe")
-
-            print("➡ Aguardando SVG do mapa")
-
-            frame.locator("#svg-map-brasil").wait_for(timeout=60000)
+            page.wait_for_selector("#svg-map-brasil", timeout=60000)
 
             print("➡ Selecionando estado RO")
 
-            estado = frame.locator("a.estado[name='Rondônia']")
+            estado = page.locator("#svg-map-brasil a:has-text('RO')")
             estado.wait_for(timeout=60000)
             estado.click()
 
             print("✔ Estado selecionado")
 
-            # aguarda carregar tela seguinte
-            page.wait_for_load_state("networkidle")
+            # aguarda carregar tela do termo
+            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
 
             # ------------------------------------------------
             # PASSO 04 — TERMO
