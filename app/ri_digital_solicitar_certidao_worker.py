@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
@@ -8,6 +9,9 @@ from app.db import insert_result, create_document
 
 DOWNLOAD_DIR = Path("/app/data/certidoes")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+DEBUG_DIR = Path("/app/debug")
+DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _wait_enabled(page, selector: str, timeout: int = 30000) -> None:
@@ -21,6 +25,78 @@ def _wait_enabled(page, selector: str, timeout: int = 30000) -> None:
         arg=selector,
         timeout=timeout,
     )
+
+
+def _debug_page_info(page, etapa: str) -> None:
+    try:
+        print(f"[DEBUG][{etapa}] URL: {page.url}")
+    except Exception as e:
+        print(f"[DEBUG][{etapa}] Erro ao obter URL: {e}")
+
+    try:
+        print(f"[DEBUG][{etapa}] TITLE: {page.title()}")
+    except Exception as e:
+        print(f"[DEBUG][{etapa}] Erro ao obter TITLE: {e}")
+
+
+def _debug_frames(page, etapa: str) -> None:
+    print(f"[DEBUG][{etapa}] === FRAMES DA PÁGINA ===")
+    try:
+        for i, frame in enumerate(page.frames):
+            try:
+                print(f"[DEBUG][{etapa}] FRAME[{i}] URL: {frame.url}")
+            except Exception as e:
+                print(f"[DEBUG][{etapa}] FRAME[{i}] erro: {e}")
+    except Exception as e:
+        print(f"[DEBUG][{etapa}] Erro ao listar frames: {e}")
+    print(f"[DEBUG][{etapa}] ========================")
+
+
+def _debug_snapshot(page, label: str) -> None:
+    try:
+        ts = int(time.time())
+        png_path = DEBUG_DIR / f"{label}_{ts}.png"
+        html_path = DEBUG_DIR / f"{label}_{ts}.html"
+
+        page.screenshot(path=str(png_path), full_page=True)
+
+        html = page.content()
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        print(f"[DEBUG] Screenshot salvo: {png_path}")
+        print(f"[DEBUG] HTML salvo: {html_path}")
+
+    except Exception as e:
+        print(f"[DEBUG] Falha ao gerar snapshot '{label}': {e}")
+
+
+def _find_map_context(page):
+    """
+    Procura o mapa no DOM principal e depois em frames.
+    Retorna:
+      - ("page", page) se encontrou no DOM principal
+      - ("frame", frame) se encontrou em algum frame
+    """
+    try:
+        if page.locator("#svg-map-brasil").count() > 0:
+            print("[DEBUG] Mapa encontrado no DOM principal")
+            return "page", page
+    except Exception as e:
+        print(f"[DEBUG] Erro ao verificar mapa no DOM principal: {e}")
+
+    try:
+        for i, frame in enumerate(page.frames):
+            try:
+                if frame.locator("#svg-map-brasil").count() > 0:
+                    print(f"[DEBUG] Mapa encontrado no FRAME[{i}]")
+                    return "frame", frame
+            except Exception as e:
+                print(f"[DEBUG] Erro ao verificar mapa no FRAME[{i}]: {e}")
+    except Exception as e:
+        print(f"[DEBUG] Erro ao iterar frames: {e}")
+
+    return None, None
 
 
 def executar_job_ri_digital_solicitar_certidao(job, login, senha):
@@ -45,6 +121,19 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
         page.set_default_timeout(60000)
 
+        # ------------------------------------------------
+        # TELEMETRIA / LOGS DO PLAYWRIGHT
+        # ------------------------------------------------
+        page.on("console", lambda msg: print(f"[PAGE CONSOLE] {msg.type}: {msg.text}"))
+        page.on("pageerror", lambda e: print(f"[PAGE ERROR] {e}"))
+        page.on("requestfailed", lambda r: print(f"[REQUEST FAILED] {r.url}"))
+
+        context.tracing.start(
+            screenshots=True,
+            snapshots=True,
+            sources=True,
+        )
+
         try:
             print("➡ Iniciando automação RI Digital Certidão")
 
@@ -56,6 +145,8 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                 "https://ridigital.org.br/Acesso.aspx",
                 wait_until="domcontentloaded",
             )
+
+            _debug_page_info(page, "login_aberto")
 
             page.wait_for_selector("a.acesso-comum-link", timeout=60000)
             page.click("a.acesso-comum-link")
@@ -70,6 +161,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             page.wait_for_url("**/ServicosOnline.aspx", timeout=60000)
 
             print("✔ Login realizado com sucesso")
+            _debug_page_info(page, "login_ok")
 
             # ------------------------------------------------
             # SERVIÇOS
@@ -79,6 +171,8 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                 "https://ridigital.org.br/ServicosOnline.aspx",
                 wait_until="domcontentloaded",
             )
+
+            _debug_page_info(page, "servicos")
 
             # ------------------------------------------------
             # PASSO 01 — CERTIDÃO DIGITAL
@@ -93,62 +187,87 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             )
             page.wait_for_load_state("networkidle")
 
+            _debug_page_info(page, "certidao_digital")
+
             # ------------------------------------------------
             # PASSO 02 — NOVO PEDIDO
             # ------------------------------------------------
             print("➡ Aguardando botão +Novo Pedido")
-
             page.wait_for_selector("#Ul1 > a.subheader__action-btn", timeout=60000)
 
             print("➡ Clicando em +Novo Pedido")
-
             page.locator("#Ul1 > a.subheader__action-btn").click()
 
-            # aguarda navegação do ASP.NET
             page.wait_for_url("**/CertidaoDigital/Default.aspx", timeout=60000)
-
             print("✔ Página de novo pedido carregada")
 
-            # pequena pausa para JS montar o SVG
             page.wait_for_timeout(2000)
+
+            _debug_page_info(page, "novo_pedido")
+            _debug_frames(page, "novo_pedido")
+            _debug_snapshot(page, "antes_busca_mapa")
 
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
             print("➡ Aguardando mapa do Brasil")
 
-            # aguarda o SVG existir no DOM
-            page.wait_for_selector("#svg-map-brasil", state="attached", timeout=60000)
+            ctx_type, ctx = _find_map_context(page)
 
-            # garante que o estado existe dentro do mapa
-            page.wait_for_selector("#svg-map-brasil a[name='Rondônia']", state="attached", timeout=60000)
+            if not ctx:
+                # mais uma tentativa após pequena espera
+                page.wait_for_timeout(3000)
+                _debug_snapshot(page, "segunda_tentativa_mapa")
+                ctx_type, ctx = _find_map_context(page)
+
+            if not ctx:
+                raise Exception(
+                    "Mapa '#svg-map-brasil' não encontrado nem no DOM principal nem em frames"
+                )
+
+            print(f"[DEBUG] Contexto do mapa: {ctx_type}")
+
+            ctx.wait_for_selector("#svg-map-brasil", state="attached", timeout=60000)
+            ctx.wait_for_selector(
+                "#svg-map-brasil a[name='Rondônia']",
+                state="attached",
+                timeout=60000,
+            )
 
             print("➡ Selecionando estado Rondônia")
 
-            estado = page.locator("#svg-map-brasil a[name='Rondônia']").first
-
-            # garante que o elemento está clicável
+            estado = ctx.locator("#svg-map-brasil a[name='Rondônia']").first
             estado.scroll_into_view_if_needed()
-
             page.wait_for_timeout(500)
 
-            estado.click()
+            try:
+                estado.click(timeout=30000)
+            except PlaywrightTimeoutError:
+                print("[DEBUG] Click normal falhou, tentando force click")
+                estado.click(timeout=30000, force=True)
 
             print("✔ Estado selecionado")
+
+            _debug_page_info(page, "apos_estado")
+            _debug_snapshot(page, "apos_estado")
 
             # ------------------------------------------------
             # PASSO 04 — TELA TERMO
             # ------------------------------------------------
             print("➡ Aguardando tela de termo")
-
             page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
 
-            # aguarda botão habilitar (ASP.NET costuma desabilitar temporariamente)
             page.wait_for_function(
                 "document.querySelector('#Contrato_btnGoNext') && !document.querySelector('#Contrato_btnGoNext').disabled"
             )
 
             print("✔ Tela de termo carregada")
+            _debug_page_info(page, "termo")
+            _debug_snapshot(page, "tela_termo")
+
+            print("➡ Prosseguindo no termo")
+            page.click("#Contrato_btnGoNext")
+            page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
             # PASSO 05 — CIDADE E CARTÓRIO
@@ -295,7 +414,8 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                     file_path = DOWNLOAD_DIR / download.suggested_filename
                     download.save_as(file_path)
                     arquivos_pdf.append(str(file_path))
-                except Exception:
+                except Exception as e:
+                    print(f"[DEBUG] Falha ao baixar PDF: {e}")
                     continue
 
             # ------------------------------------------------
@@ -330,10 +450,27 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             print("✔ Automação RI Digital Certidão finalizada com sucesso")
 
+            try:
+                context.tracing.stop(path=str(DEBUG_DIR / "trace.zip"))
+                print(f"[DEBUG] Trace salvo em: {DEBUG_DIR / 'trace.zip'}")
+            except Exception as e:
+                print(f"[DEBUG] Falha ao salvar trace: {e}")
+
             browser.close()
             return True
 
         except Exception as e:
+            print("⚠ ERRO NA AUTOMAÇÃO")
+            _debug_page_info(page, "erro")
+            _debug_frames(page, "erro")
+            _debug_snapshot(page, "erro_automacao")
+
+            try:
+                context.tracing.stop(path=str(DEBUG_DIR / "trace.zip"))
+                print(f"[DEBUG] Trace salvo em: {DEBUG_DIR / 'trace.zip'}")
+            except Exception as trace_error:
+                print(f"[DEBUG] Falha ao salvar trace em erro: {trace_error}")
+
             try:
                 page.screenshot(
                     path="/app/data/ri_digital_solicitar_certidao_erro.png",
