@@ -108,13 +108,19 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
+            print("➡ Aguardando página do formulário")
+
+            page.wait_for_url("**/Formulario.aspx", timeout=60000)
+
+            print("✔ Formulário carregado")
+
             print("➡ Aguardando mapa do Brasil")
 
             page.wait_for_selector("#svg-map-brasil", timeout=60000)
 
             print("➡ Selecionando estado RO")
 
-            estado = page.locator("#svg-map-brasil a:has-text('RO')")
+            estado = page.locator("#svg-map-brasil text:has-text('RO')")
             estado.wait_for(timeout=60000)
             estado.click()
 
