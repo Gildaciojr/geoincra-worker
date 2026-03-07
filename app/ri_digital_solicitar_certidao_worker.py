@@ -72,28 +72,42 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             page.goto("https://ridigital.org.br/CertidaoDigital/Default.aspx")
 
             # ------------------------------------------------
-            # PASSO 03 — TELA TERMO
-            # ------------------------------------------------
-            print("➡ Aceitando termo")
-            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
-            page.click("#Contrato_btnGoNext")
-
-            # próxima tela esperada: mapa
-            page.wait_for_selector("#svg-map-brasil", timeout=60000)
-
-            # ------------------------------------------------
-            # PASSO 04 — SELECIONAR ESTADO NO MAPA
+            # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
             print("➡ Carregando mapa do Brasil")
+
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_selector("#svg-map-brasil", timeout=60000)
 
             print("➡ Selecionando estado RO")
+
             estado = page.locator("#svg-map-brasil text", has_text="RO")
             estado.wait_for(timeout=60000)
             estado.click()
 
             page.wait_for_timeout(2000)
+
+            print("➡ Prosseguindo após selecionar estado")
+
+            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
+            page.click("#Contrato_btnGoNext")
+
+            # ------------------------------------------------
+            # PASSO 04 — TELA TERMO
+            # ------------------------------------------------
+            print("➡ Tela de termo carregada")
+
+            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
+
+            page.wait_for_function(
+                "document.querySelector('#Contrato_btnGoNext') && !document.querySelector('#Contrato_btnGoNext').disabled"
+            )
+
+            print("➡ Aceitando termo")
+
+            page.click("#Contrato_btnGoNext")
+
+            page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
             # PASSO 05 — CIDADE E CARTÓRIO
