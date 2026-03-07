@@ -8,6 +8,7 @@ from app.db import (
 
 from app.ri_digital import executar_ri_digital
 from app.ri_digital_solicitar_certidao_worker import executar_job_ri_digital_solicitar_certidao
+from app.ri_digital_consultar_certidao_worker import executar_job_ri_digital_consultar_certidao
 from app.ocr_worker import executar_ocr_job
 
 
@@ -59,7 +60,25 @@ def main():
                 update_job_status(job["id"], "COMPLETED")
 
             # ------------------------------------------------
-            # OCR DOCUMENTOS (AUTOMAÇÃO 3)
+            # RI DIGITAL — CONSULTAR CERTIDÃO (AUTOMAÇÃO 3)
+            # ------------------------------------------------
+            elif job_type == "RI_DIGITAL_CONSULTAR_CERTIDAO":
+
+                cred = fetch_ri_digital_credentials(job["user_id"])
+
+                if not cred:
+                    raise Exception("Credenciais do RI Digital não encontradas")
+
+                executar_job_ri_digital_consultar_certidao(
+                    job,
+                    cred["login"],
+                    cred["password_encrypted"]
+                )
+
+                update_job_status(job["id"], "COMPLETED")
+
+            # ------------------------------------------------
+            # OCR DOCUMENTOS (AUTOMAÇÃO 4)
             # ------------------------------------------------
             elif job_type == "OCR_DOCUMENT":
 

@@ -29,16 +29,22 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
         try:
 
             # ------------------------------------------------
-            # LOGIN
+            # LOGIN CORRETO RI DIGITAL
             # ------------------------------------------------
             page.goto("https://ridigital.org.br/Acesso.aspx")
 
-            page.fill("#txtLogin", login)
-            page.fill("#txtSenha", senha)
+            page.wait_for_selector("a.acesso-comum-link")
 
-            page.click("#btnEntrar")
+            page.click("a.acesso-comum-link")
 
-            page.wait_for_load_state("networkidle")
+            page.wait_for_selector('input[placeholder="E-mail"]')
+
+            page.fill('input[placeholder="E-mail"]', login)
+            page.fill('input[placeholder="Senha"]', senha)
+
+            page.click("#btnProsseguir")
+
+            page.wait_for_url("**/ServicosOnline.aspx")
 
             # ------------------------------------------------
             # SERVIÇOS
@@ -163,8 +169,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
                 arquivos_pdf.append(str(file_path))
 
-            browser.close()
-
             # ------------------------------------------------
             # SALVAR RESULTADOS
             # ------------------------------------------------
@@ -188,10 +192,11 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                     "metadata_json": metadata
                 })
 
-                # salva também em documents
                 if pdf_path and project_id:
                     filename = Path(pdf_path).name
                     create_document(project_id, filename, pdf_path)
+
+            browser.close()
 
             return True
 

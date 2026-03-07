@@ -25,7 +25,8 @@ def fetch_pending_job():
                       AND type IN (
                           'RI_DIGITAL_MATRICULA',
                           'RI_DIGITAL_SOLICITAR_CERTIDAO',
-                        'OCR_DOCUMENT'
+                          'RI_DIGITAL_CONSULTAR_CERTIDAO',
+                          'OCR_DOCUMENT'
                       )
                     ORDER BY created_at
                     LIMIT 1
