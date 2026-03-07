@@ -1,5 +1,6 @@
-import time
 from pathlib import Path
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from app.db import insert_result, create_document
@@ -7,6 +8,75 @@ from app.db import insert_result, create_document
 
 DOWNLOAD_DIR = Path("/app/data/certidoes")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _is_visible(page, selector: str, timeout: int = 3000) -> bool:
+    try:
+        page.wait_for_selector(selector, state="visible", timeout=timeout)
+        return True
+    except PlaywrightTimeoutError:
+        return False
+
+
+def _wait_button_enabled(page, selector: str, timeout: int = 15000) -> None:
+    page.wait_for_function(
+        """
+        (sel) => {
+            const el = document.querySelector(sel);
+            return !!el && !el.disabled;
+        }
+        """,
+        arg=selector,
+        timeout=timeout,
+    )
+
+
+def _advance_until_cartorio(page) -> None:
+    """
+    O RI Digital pode variar a sequência entre:
+    - mapa -> termo -> cartório
+    - termo -> mapa -> cartório
+    - direto para cartório
+    Esta função detecta a tela atual e avança até chegar em Cartório.
+    """
+    for tentativa in range(1, 8):
+        print(f"➡ Detectando tela intermediária antes de Cartório (tentativa {tentativa})")
+
+        # 1) Se já chegou em cartório, finaliza
+        if _is_visible(page, "#Cartorio_ddlCidade", timeout=3000):
+            print("✔ Tela de Cartório carregada")
+            return
+
+        # 2) Se apareceu o mapa, seleciona RO e prossegue
+        if _is_visible(page, "#svg-map-brasil", timeout=3000):
+            print("➡ Tela do mapa detectada")
+            estado = page.locator("#svg-map-brasil text", has_text="RO")
+            estado.wait_for(timeout=15000)
+            estado.click()
+
+            page.wait_for_timeout(1500)
+
+            page.wait_for_selector("#Contrato_btnGoNext", timeout=15000)
+            _wait_button_enabled(page, "#Contrato_btnGoNext", timeout=15000)
+
+            print("➡ Prosseguindo após selecionar estado")
+            page.click("#Contrato_btnGoNext")
+            page.wait_for_load_state("networkidle")
+            continue
+
+        # 3) Se apareceu o termo, apenas prossegue
+        if _is_visible(page, "#Contrato_btnGoNext", timeout=3000):
+            print("➡ Tela de Termo detectada")
+            _wait_button_enabled(page, "#Contrato_btnGoNext", timeout=15000)
+
+            print("➡ Aceitando termo")
+            page.click("#Contrato_btnGoNext")
+            page.wait_for_load_state("networkidle")
+            continue
+
+        page.wait_for_timeout(1500)
+
+    raise Exception("Não foi possível avançar até a tela de Cartório")
 
 
 def executar_job_ri_digital_solicitar_certidao(job, login, senha):
@@ -22,11 +92,13 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
     with sync_playwright() as p:
 
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
-        # timeout global
         page.set_default_timeout(60000)
 
         try:
@@ -36,7 +108,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # LOGIN RI DIGITAL
             # ------------------------------------------------
             print("➡ Abrindo página de login")
-            page.goto("https://ridigital.org.br/Acesso.aspx")
+            page.goto("https://ridigital.org.br/Acesso.aspx", wait_until="domcontentloaded")
 
             page.wait_for_selector("a.acesso-comum-link", timeout=60000)
             page.click("a.acesso-comum-link")
@@ -48,15 +120,15 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             page.fill('input[placeholder="Senha"]', senha)
 
             page.click("#btnProsseguir")
-
             page.wait_for_url("**/ServicosOnline.aspx", timeout=60000)
+
             print("✔ Login realizado com sucesso")
 
             # ------------------------------------------------
             # SERVIÇOS
             # ------------------------------------------------
             print("➡ Abrindo serviços")
-            page.goto("https://ridigital.org.br/ServicosOnline.aspx")
+            page.goto("https://ridigital.org.br/ServicosOnline.aspx", wait_until="domcontentloaded")
 
             # ------------------------------------------------
             # PASSO 01 — CERTIDÃO DIGITAL
@@ -66,48 +138,17 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
-            # PASSO 02 — NOVO PEDIDO (ACESSO DIRETO)
+            # PASSO 02 — NOVO PEDIDO
             # ------------------------------------------------
             print("➡ Abrindo página de novo pedido")
-            page.goto("https://ridigital.org.br/CertidaoDigital/Default.aspx")
-
-            # ------------------------------------------------
-            # PASSO 03 — MAPA (ESCOLHER ESTADO)
-            # ------------------------------------------------
-            print("➡ Carregando mapa do Brasil")
-
-            page.wait_for_load_state("domcontentloaded")
-            page.wait_for_selector("#svg-map-brasil", timeout=60000)
-
-            print("➡ Selecionando estado RO")
-
-            estado = page.locator("#svg-map-brasil text", has_text="RO")
-            estado.wait_for(timeout=60000)
-            estado.click()
-
-            page.wait_for_timeout(2000)
-
-            print("➡ Prosseguindo após selecionar estado")
-
-            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
-            page.click("#Contrato_btnGoNext")
-
-            # ------------------------------------------------
-            # PASSO 04 — TELA TERMO
-            # ------------------------------------------------
-            print("➡ Tela de termo carregada")
-
-            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
-
-            page.wait_for_function(
-                "document.querySelector('#Contrato_btnGoNext') && !document.querySelector('#Contrato_btnGoNext').disabled"
-            )
-
-            print("➡ Aceitando termo")
-
-            page.click("#Contrato_btnGoNext")
-
+            page.wait_for_selector("#Ul1 > a.subheader__action-btn", timeout=60000)
+            page.click("#Ul1 > a.subheader__action-btn")
             page.wait_for_load_state("networkidle")
+
+            # ------------------------------------------------
+            # PASSOS 03 / 04 — MAPA / TERMO (DINÂMICO)
+            # ------------------------------------------------
+            _advance_until_cartorio(page)
 
             # ------------------------------------------------
             # PASSO 05 — CIDADE E CARTÓRIO
@@ -138,7 +179,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             page.wait_for_selector("#TipoCertidao_ddlTipoCertidao", timeout=60000)
             page.select_option("#TipoCertidao_ddlTipoCertidao", value="3")
 
-            # postback ASP.NET
             page.wait_for_load_state("networkidle")
 
             print("➡ Selecionando pedido por matrícula/CNM")
@@ -175,7 +215,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             linhas = page.locator("table tbody tr").all()
 
             for linha in linhas:
-
                 colunas = linha.locator("td").all()
 
                 if len(colunas) < 6:
@@ -204,7 +243,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             print(f"➡ Selecionando finalidade: {finalidade}")
             page.wait_for_selector("#Confirmacao_ddlTipoFinalidade", timeout=60000)
             page.select_option("#Confirmacao_ddlTipoFinalidade", value=finalidade)
-
             page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
@@ -213,7 +251,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             print("➡ Selecionando pagamento por saldo em créditos")
             page.wait_for_selector("#Confirmacao_btnSaldoCreditos", timeout=60000)
             page.click("#Confirmacao_btnSaldoCreditos")
-
             page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
@@ -221,6 +258,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             print("➡ Concluindo pedido")
             page.wait_for_selector("#Confirmacao_btnConcluirPedido", timeout=60000)
+            _wait_button_enabled(page, "#Confirmacao_btnConcluirPedido", timeout=15000)
             page.click("#Confirmacao_btnConcluirPedido")
 
             page.wait_for_load_state("networkidle")
@@ -235,7 +273,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             arquivos_pdf = []
 
             for link in pdf_links:
-
                 href = link.get_attribute("href")
 
                 if not href:
@@ -246,7 +283,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                         link.click()
 
                     download = download_info.value
-
                     file_path = DOWNLOAD_DIR / download.suggested_filename
                     download.save_as(file_path)
 
@@ -259,7 +295,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             print("➡ Salvando resultados no banco")
             for r in resultados:
-
                 pdf_path = arquivos_pdf[0] if arquivos_pdf else None
 
                 metadata = {
@@ -288,5 +323,10 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             return True
 
         except Exception as e:
+            try:
+                page.screenshot(path="/app/data/ri_digital_solicitar_certidao_erro.png", full_page=True)
+            except Exception:
+                pass
+
             browser.close()
             raise Exception(f"Erro na automação RI Digital Certidão: {str(e)}")
