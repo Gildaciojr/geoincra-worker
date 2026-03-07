@@ -26,15 +26,17 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
+        # aumenta timeout padrão para evitar falhas
+        page.set_default_timeout(60000)
+
         try:
 
             # ------------------------------------------------
-            # LOGIN CORRETO RI DIGITAL
+            # LOGIN RI DIGITAL
             # ------------------------------------------------
             page.goto("https://ridigital.org.br/Acesso.aspx")
 
             page.wait_for_selector("a.acesso-comum-link")
-
             page.click("a.acesso-comum-link")
 
             page.wait_for_selector('input[placeholder="E-mail"]')
@@ -64,9 +66,18 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
-            # PASSO 03 — ESTADO RO
+            # PASSO 03 — SELECIONAR ESTADO NO MAPA
             # ------------------------------------------------
-            page.click("#svg-map-brasil > g > a:nth-child(15) > text")
+            page.wait_for_load_state("domcontentloaded")
+
+            page.wait_for_selector("#svg-map-brasil", timeout=60000)
+
+            estado = page.locator("#svg-map-brasil text", has_text="RO")
+
+            estado.wait_for(timeout=60000)
+
+            estado.click()
+
             page.wait_for_timeout(2000)
 
             # ------------------------------------------------
@@ -100,6 +111,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # PASSO 07 — MATRÍCULA
             # ------------------------------------------------
             page.fill("#txtTag", matricula)
+
             page.click("#PorMatriculaComComplemento_btnGoNext")
             page.wait_for_load_state("networkidle")
 
@@ -107,6 +119,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # PASSO 08 — FINALIDADE
             # ------------------------------------------------
             page.select_option("#Confirmacao_ddlTipoFinalidade", value=finalidade)
+
             page.wait_for_timeout(2000)
 
             # ------------------------------------------------
@@ -141,9 +154,11 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # PAGAMENTO
             # ------------------------------------------------
             page.click("#Confirmacao_btnSaldoCreditos")
+
             page.wait_for_timeout(2000)
 
             page.click("#Confirmacao_btnConcluirPedido")
+
             page.wait_for_timeout(4000)
 
             # ------------------------------------------------
@@ -156,6 +171,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             for link in pdf_links:
 
                 href = link.get_attribute("href")
+
                 if not href:
                     continue
 
@@ -165,6 +181,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                 download = download_info.value
 
                 file_path = DOWNLOAD_DIR / download.suggested_filename
+
                 download.save_as(file_path)
 
                 arquivos_pdf.append(str(file_path))
@@ -193,7 +210,9 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                 })
 
                 if pdf_path and project_id:
+
                     filename = Path(pdf_path).name
+
                     create_document(project_id, filename, pdf_path)
 
             browser.close()
