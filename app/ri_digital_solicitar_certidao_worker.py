@@ -108,19 +108,23 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
-            print("➡ Aguardando mapa do Brasil")
+            print("➡ Aguardando mapa aparecer")
 
-            page.wait_for_selector("#svg-map-brasil", timeout=60000)
+            # espera qualquer SVG do mapa carregar
+            page.wait_for_selector("svg", timeout=60000)
 
             print("➡ Selecionando estado RO")
 
-            estado = page.locator("#svg-map-brasil a:has(text:has-text('RO'))")
+            # encontra o link <a> que contém o texto RO dentro do SVG
+            estado = page.locator("svg a:has-text('RO')").first
             estado.wait_for(timeout=60000)
-            estado.click()
+
+            # força o clique no elemento real que dispara o JS do mapa
+            estado.evaluate("el => el.click()")
 
             print("✔ Estado selecionado")
 
-            # aguarda tela do termo
+            # aguarda aparecer o botão de prosseguir do termo
             page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
 
             # ------------------------------------------------
