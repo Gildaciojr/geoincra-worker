@@ -97,43 +97,58 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # PASSO 02 — NOVO PEDIDO
             # ------------------------------------------------
             print("➡ Aguardando botão +Novo Pedido")
+
             page.wait_for_selector("#Ul1 > a.subheader__action-btn", timeout=60000)
 
             print("➡ Clicando em +Novo Pedido")
+
             page.locator("#Ul1 > a.subheader__action-btn").click()
 
+            # aguarda navegação do ASP.NET
             page.wait_for_url("**/CertidaoDigital/Default.aspx", timeout=60000)
+
             print("✔ Página de novo pedido carregada")
+
+            # pequena pausa para JS montar o SVG
+            page.wait_for_timeout(2000)
 
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
             print("➡ Aguardando mapa do Brasil")
 
-            page.wait_for_selector("#svg-map-brasil", timeout=60000)
+            # aguarda o SVG existir no DOM
+            page.wait_for_selector("#svg-map-brasil", state="attached", timeout=60000)
+
+            # garante que o estado existe dentro do mapa
+            page.wait_for_selector("#svg-map-brasil a[name='Rondônia']", state="attached", timeout=60000)
 
             print("➡ Selecionando estado Rondônia")
 
-            estado = page.locator("#svg-map-brasil a[name='Rondônia']")
-            estado.wait_for(timeout=60000)
+            estado = page.locator("#svg-map-brasil a[name='Rondônia']").first
+
+            # garante que o elemento está clicável
+            estado.scroll_into_view_if_needed()
+
+            page.wait_for_timeout(500)
+
             estado.click()
 
             print("✔ Estado selecionado")
 
-            # aguarda botão prosseguir aparecer
-            page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
             # ------------------------------------------------
-            # PASSO 04 — TERMO
+            # PASSO 04 — TELA TERMO
             # ------------------------------------------------
             print("➡ Aguardando tela de termo")
 
             page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
 
-            print("➡ Prosseguindo no termo")
+            # aguarda botão habilitar (ASP.NET costuma desabilitar temporariamente)
+            page.wait_for_function(
+                "document.querySelector('#Contrato_btnGoNext') && !document.querySelector('#Contrato_btnGoNext').disabled"
+            )
 
-            page.click("#Contrato_btnGoNext")
-
-            page.wait_for_load_state("networkidle")
+            print("✔ Tela de termo carregada")
 
             # ------------------------------------------------
             # PASSO 05 — CIDADE E CARTÓRIO
