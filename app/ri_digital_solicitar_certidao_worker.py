@@ -108,38 +108,36 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # ------------------------------------------------
             # PASSO 03 — MAPA (ESCOLHER ESTADO)
             # ------------------------------------------------
-            print("➡ Aguardando mapa do Brasil")
+            print("➡ Aguardando tela de seleção de estado")
 
-            page.wait_for_selector("#svg-map-brasil", timeout=60000)
+            page.wait_for_selector("text=Escolha no mapa a região desejada.", timeout=60000)
+
+            print("➡ Aguardando SVG do mapa")
+
+            page.wait_for_selector("svg", timeout=60000)
 
             print("➡ Selecionando estado Rondônia")
 
-            estado = page.locator("#svg-map-brasil a.estado[name='Rondônia']")
+            estado = page.locator("a.estado[name='Rondônia']")
             estado.wait_for(timeout=60000)
             estado.click()
 
-            # aguarda postback ASP.NET carregar próxima tela
-            page.wait_for_load_state("networkidle")
-
             print("✔ Estado selecionado")
 
+            # aguarda carregamento da tela de termo
+            page.wait_for_load_state("networkidle")
+
             # ------------------------------------------------
-            # PASSO 04 — TELA TERMO
+            # PASSO 04 — TERMO
             # ------------------------------------------------
             print("➡ Aguardando tela de termo")
 
             page.wait_for_selector("#Contrato_btnGoNext", timeout=60000)
 
-            # garante que o botão está habilitado
-            page.wait_for_function(
-                "document.querySelector('#Contrato_btnGoNext') && !document.querySelector('#Contrato_btnGoNext').disabled"
-            )
-
             print("➡ Prosseguindo no termo")
 
             page.click("#Contrato_btnGoNext")
 
-            # aguarda carregar próxima tela
             page.wait_for_load_state("networkidle")
 
             # ------------------------------------------------
