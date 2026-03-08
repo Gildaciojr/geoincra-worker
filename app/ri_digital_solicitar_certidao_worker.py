@@ -260,23 +260,107 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             page.wait_for_load_state("networkidle")
 
-            # CIDADE
+            # ------------------------------------------------
+            # PASSO — CIDADE E CARTÓRIO
+            # ------------------------------------------------
 
             print(f"➡ Selecionando cidade: {cidade}")
 
-            ctx.wait_for_selector("#Cartorio_ddlCidade")
+            # garante que o select existe
+            ctx.wait_for_selector("#Cartorio_ddlCidade", timeout=60000)
 
-            ctx.select_option("#Cartorio_ddlCidade", label=cidade)
+            # aguarda o ASP.NET popular as opções
+            ctx.wait_for_function(
+                """
+                () => {
+                    const sel = document.querySelector('#Cartorio_ddlCidade');
+                    return sel && sel.options && sel.options.length > 1;
+                }
+                """,
+                timeout=60000
+            )
 
-            ctx.wait_for_selector("#Cartorio_ddlCartorio option:not([value='-1'])")
+            # normaliza cidade recebida
+            cidade_normalizada = cidade.strip().lower()
 
-            # CARTORIO
+            # captura opções disponíveis
+            opcoes_cidade = ctx.locator("#Cartorio_ddlCidade option").all()
+
+            cidade_encontrada = None
+            cidade_label = None
+
+            for opt in opcoes_cidade:
+                texto = opt.inner_text().strip().lower()
+
+                if cidade_normalizada in texto:
+                    cidade_encontrada = opt.get_attribute("value")
+                    cidade_label = opt.inner_text().strip()
+                    break
+
+            if not cidade_encontrada:
+                raise Exception(
+                    f"Cidade '{cidade}' não encontrada nas opções disponíveis"
+                )
+
+            # seleciona cidade
+            ctx.select_option("#Cartorio_ddlCidade", value=cidade_encontrada)
+
+            print(f"✔ Cidade selecionada: {cidade_label}")
+
+            # ------------------------------------------------
+            # AGUARDAR CARTÓRIOS CARREGAREM
+            # ------------------------------------------------
+
+            ctx.wait_for_function(
+                """
+                () => {
+                    const sel = document.querySelector('#Cartorio_ddlCartorio');
+                    return sel && sel.options && sel.options.length > 1;
+                }
+                """,
+                timeout=60000
+            )
+
+            ctx.wait_for_selector(
+                "#Cartorio_ddlCartorio option:not([value='-1'])",
+                timeout=60000
+            )
+
+            # ------------------------------------------------
+            # CARTÓRIO
+            # ------------------------------------------------
 
             print(f"➡ Selecionando cartório: {cartorio}")
 
-            ctx.select_option("#Cartorio_ddlCartorio", label=cartorio)
+            cartorio_normalizado = cartorio.strip().lower()
+
+            opcoes_cartorio = ctx.locator("#Cartorio_ddlCartorio option").all()
+
+            cartorio_encontrado = None
+            cartorio_label = None
+
+            for opt in opcoes_cartorio:
+                texto = opt.inner_text().strip().lower()
+
+                if cartorio_normalizado in texto:
+                    cartorio_encontrado = opt.get_attribute("value")
+                    cartorio_label = opt.inner_text().strip()
+                    break
+
+            if not cartorio_encontrado:
+                raise Exception(
+                    f"Cartório '{cartorio}' não encontrado nas opções disponíveis"
+                )
+
+            ctx.select_option("#Cartorio_ddlCartorio", value=cartorio_encontrado)
+
+            print(f"✔ Cartório selecionado: {cartorio_label}")
 
             page.wait_for_timeout(1000)
+
+            # ------------------------------------------------
+            # PROSSEGUIR
+            # ------------------------------------------------
 
             print("➡ Prosseguindo")
 
