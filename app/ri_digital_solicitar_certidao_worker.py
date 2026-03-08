@@ -260,70 +260,57 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             page.wait_for_load_state("networkidle")
 
-            # ------------------------------------------------
+                        # ------------------------------------------------
             # PASSO — CIDADE E CARTÓRIO
             # ------------------------------------------------
 
             print(f"➡ Selecionando cidade: {cidade}")
 
-            # garante que o select existe
             ctx.wait_for_selector("#Cartorio_ddlCidade", timeout=60000)
 
-            # aguarda o ASP.NET popular as opções
+            # aguarda opções carregarem
             ctx.wait_for_function(
                 """
                 () => {
                     const sel = document.querySelector('#Cartorio_ddlCidade');
                     return sel && sel.options && sel.options.length > 1;
                 }
-                """,
-                timeout=60000
+                """
             )
 
-            # normaliza cidade recebida
             cidade_normalizada = cidade.strip().lower()
 
-            # captura opções disponíveis
             opcoes_cidade = ctx.locator("#Cartorio_ddlCidade option").all()
 
-            cidade_encontrada = None
-            cidade_label = None
+            cidade_value = None
 
             for opt in opcoes_cidade:
                 texto = opt.inner_text().strip().lower()
 
                 if cidade_normalizada in texto:
-                    cidade_encontrada = opt.get_attribute("value")
-                    cidade_label = opt.inner_text().strip()
+                    cidade_value = opt.get_attribute("value")
                     break
 
-            if not cidade_encontrada:
-                raise Exception(
-                    f"Cidade '{cidade}' não encontrada nas opções disponíveis"
-                )
+            if not cidade_value:
+                raise Exception(f"Cidade '{cidade}' não encontrada")
 
-            # seleciona cidade
-            ctx.select_option("#Cartorio_ddlCidade", value=cidade_encontrada)
+            ctx.select_option("#Cartorio_ddlCidade", value=cidade_value)
 
-            print(f"✔ Cidade selecionada: {cidade_label}")
+            print("✔ Cidade selecionada")
 
             # ------------------------------------------------
-            # AGUARDAR CARTÓRIOS CARREGAREM
+            # AGUARDAR POSTBACK DO ASP.NET
             # ------------------------------------------------
+
+            ctx.wait_for_load_state("networkidle")
 
             ctx.wait_for_function(
                 """
                 () => {
                     const sel = document.querySelector('#Cartorio_ddlCartorio');
-                    return sel && sel.options && sel.options.length > 1;
+                    return sel && sel.options && sel.options.length >= 1;
                 }
-                """,
-                timeout=60000
-            )
-
-            ctx.wait_for_selector(
-                "#Cartorio_ddlCartorio option:not([value='-1'])",
-                timeout=60000
+                """
             )
 
             # ------------------------------------------------
@@ -336,25 +323,24 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             opcoes_cartorio = ctx.locator("#Cartorio_ddlCartorio option").all()
 
-            cartorio_encontrado = None
-            cartorio_label = None
+            cartorio_value = None
 
             for opt in opcoes_cartorio:
+
                 texto = opt.inner_text().strip().lower()
 
                 if cartorio_normalizado in texto:
-                    cartorio_encontrado = opt.get_attribute("value")
-                    cartorio_label = opt.inner_text().strip()
+
+                    cartorio_value = opt.get_attribute("value")
+
                     break
 
-            if not cartorio_encontrado:
-                raise Exception(
-                    f"Cartório '{cartorio}' não encontrado nas opções disponíveis"
-                )
+            if not cartorio_value:
+                raise Exception(f"Cartório '{cartorio}' não encontrado")
 
-            ctx.select_option("#Cartorio_ddlCartorio", value=cartorio_encontrado)
+            ctx.select_option("#Cartorio_ddlCartorio", value=cartorio_value)
 
-            print(f"✔ Cartório selecionado: {cartorio_label}")
+            print("✔ Cartório selecionado")
 
             page.wait_for_timeout(1000)
 
