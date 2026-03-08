@@ -62,11 +62,13 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
             # CERTIDÃO DIGITAL
             # ------------------------------------------------
 
-            page.click("text=Certidão Digital")
+            print("➡ Acessando página Certidão Digital")
 
-            page.wait_for_url("**/CertidaoDigital/lstPedidos.aspx")
+            page.goto("https://ridigital.org.br/CertidaoDigital/lstPedidos.aspx")
 
-            print("➡ Página de pedidos carregada")
+            page.wait_for_selector("#Grid")
+
+            print("✔ Página de pedidos carregada")
 
             # ------------------------------------------------
             # TABELA PRINCIPAL
