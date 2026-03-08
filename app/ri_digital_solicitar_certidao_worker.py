@@ -435,13 +435,17 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             page.wait_for_load_state("networkidle")
 
+            # ------------------------------------------------
             # TIPO CERTIDAO
+            # ------------------------------------------------
 
             print("➡ Selecionando tipo certidão")
 
-            ctx.wait_for_selector("#TipoCertidao_ddlTipoCertidao")
+            ctx.wait_for_selector("#TipoCertidao_ddlTipoCertidao", timeout=60000)
 
             ctx.select_option("#TipoCertidao_ddlTipoCertidao", value="3")
+
+            ctx.wait_for_timeout(500)
 
             ctx.select_option("#TipoCertidao_ddlPedidoPor", value="4")
 
@@ -453,13 +457,16 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             ctx.click("#TipoCertidao_btnGoNext")
 
-            page.wait_for_load_state("networkidle")
+            # aguarda ASP.NET atualizar tela
+            ctx.wait_for_selector("#txtTag", timeout=60000)
 
+            # ------------------------------------------------
             # MATRÍCULA
+            # ------------------------------------------------
 
             print(f"➡ Informando matrícula {matricula}")
 
-            ctx.wait_for_selector("#txtTag")
+            ctx.fill("#txtTag", "")
 
             ctx.fill("#txtTag", matricula)
 
@@ -475,49 +482,132 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             page.wait_for_load_state("networkidle")
 
+            # ------------------------------------------------
+            # CAPTURAR TABELA DE CONFIRMAÇÃO
+            # ------------------------------------------------
+
+            print("➡ Capturando dados da tabela de confirmação")
+
+            resultados = []
+
+            ctx.wait_for_selector("table tbody tr", timeout=60000)
+
+            linhas = ctx.locator("table tbody tr").all()
+
+            for linha in linhas:
+
+                colunas = linha.locator("td").all()
+
+                # tabela esperada:
+                # 0 detalhes
+                # 1 número
+                # 2 cartório
+                # 3 tipo certidão
+                # 4 tipo pedido
+                # 5 prazo
+                # 6 valor
+                # 7 excluir
+                if len(colunas) < 7:
+                    continue
+
+                numero = colunas[1].inner_text().strip()
+                cartorio_nome = colunas[2].inner_text().strip()
+                tipo_certidao = colunas[3].inner_text().strip()
+                tipo_pedido = colunas[4].inner_text().strip()
+                prazo = colunas[5].inner_text().strip()
+                valor = colunas[6].inner_text().strip()
+
+                # ignora linha total / vazias
+                if not numero:
+                    continue
+
+                if numero.lower() == "total":
+                    continue
+
+                resultados.append(
+                    {
+                        "numero": numero,
+                        "cartorio": cartorio_nome,
+                        "tipo_certidao": tipo_certidao,
+                        "tipo_pedido": tipo_pedido,
+                        "prazo": prazo,
+                        "valor": valor,
+                    }
+                )
+
+            print(f"✔ Itens capturados da tabela: {len(resultados)}")
+
+            # ------------------------------------------------
             # FINALIDADE
+            # ------------------------------------------------
 
             print(f"➡ Selecionando finalidade {finalidade}")
 
-            ctx.wait_for_selector("#Confirmacao_ddlTipoFinalidade")
+            ctx.wait_for_selector("#Confirmacao_ddlTipoFinalidade", timeout=60000)
 
             ctx.select_option("#Confirmacao_ddlTipoFinalidade", value=finalidade)
 
+            # ASP.NET faz micro atualização da tela
+            page.wait_for_timeout(1500)
+
+            # ------------------------------------------------
             # PAGAMENTO
+            # ------------------------------------------------
 
             print("➡ Pagamento saldo")
 
-            ctx.wait_for_selector("#Confirmacao_btnSaldoCreditos")
+            ctx.wait_for_selector("#Confirmacao_btnSaldoCreditos", timeout=60000)
 
             ctx.click("#Confirmacao_btnSaldoCreditos")
 
-            page.wait_for_load_state("networkidle")
+            # micro renderização após escolher forma de pagamento
+            page.wait_for_timeout(1500)
 
+            # aguarda botão concluir ficar habilitado
+            _wait_enabled(ctx, "#Confirmacao_btnConcluirPedido", timeout=60000)
+
+            # ------------------------------------------------
             # CONCLUIR
+            # ------------------------------------------------
 
             print("➡ Concluindo pedido")
 
-            _wait_enabled(ctx, "#Confirmacao_btnConcluirPedido")
-
             ctx.click("#Confirmacao_btnConcluirPedido")
 
-            page.wait_for_load_state("networkidle")
-
+            # aguarda a tela reagir
             page.wait_for_timeout(4000)
 
+            # tenta aguardar algum indício de finalização:
+            # protocolo ou link de download
+            try:
+                ctx.wait_for_function(
+                    """
+                    () => {
+                        return !!document.querySelector("a[href*='Download']")
+                            || !!document.body.innerText.match(/protocolo/i)
+                            || !!document.body.innerText.match(/pedido realizado/i);
+                    }
+                    """,
+                    timeout=60000
+                )
+            except Exception:
+                pass
+
+            # ------------------------------------------------
             # DOWNLOAD
+            # ------------------------------------------------
 
             print("➡ Procurando downloads")
 
-            pdf_links = page.query_selector_all("a[href*='Download']")
-
             arquivos_pdf = []
+
+            pdf_links = ctx.locator("a[href*='Download']").all()
 
             for link in pdf_links:
 
                 try:
 
-                    with page.expect_download() as download_info:
+                    with page.expect_download(timeout=30000) as download_info:
                         link.click()
 
                     download = download_info.value
@@ -528,38 +618,77 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
                     arquivos_pdf.append(str(file_path))
 
-                except Exception:
-                    pass
+                    print(f"✔ Download realizado: {file_path.name}")
 
+                except Exception as e:
+                    print(f"⚠ Falha ao baixar arquivo: {e}")
+
+            # ------------------------------------------------
             # SALVAR RESULTADOS
+            # ------------------------------------------------
 
             print("➡ Salvando resultados")
 
-            resultados = []
+            if resultados:
 
-            for pdf_path in arquivos_pdf:
+                for i, r in enumerate(resultados):
 
-                metadata = {
-                    "pdf_status": "OK"
-                }
+                    pdf_path = arquivos_pdf[i] if i < len(arquivos_pdf) else (
+                        arquivos_pdf[0] if arquivos_pdf else None
+                    )
 
-                insert_result(
-                    job["id"],
-                    {
-                        "protocolo": None,
-                        "matricula": matricula,
-                        "cartorio": cartorio,
-                        "data_pedido": None,
-                        "file_path": pdf_path,
-                        "metadata_json": metadata,
-                    },
-                )
+                    metadata = {
+                        "tipo_certidao": r["tipo_certidao"],
+                        "tipo_pedido": r["tipo_pedido"],
+                        "prazo": r["prazo"],
+                        "valor": r["valor"],
+                        "pdf_status": "OK" if pdf_path else "NAO_DISPONIVEL",
+                    }
 
-                if project_id:
+                    insert_result(
+                        job["id"],
+                        {
+                            "protocolo": r["numero"],
+                            "matricula": matricula,
+                            "cartorio": r["cartorio"],
+                            "data_pedido": None,
+                            "file_path": pdf_path,
+                            "metadata_json": metadata,
+                        },
+                    )
 
-                    filename = Path(pdf_path).name
+                    if pdf_path and project_id:
 
-                    create_document(project_id, filename, pdf_path)
+                        filename = Path(pdf_path).name
+
+                        create_document(project_id, filename, pdf_path)
+
+            else:
+
+                # fallback: se não conseguiu capturar tabela, ainda salva os PDFs
+                for pdf_path in arquivos_pdf:
+
+                    metadata = {
+                        "pdf_status": "OK"
+                    }
+
+                    insert_result(
+                        job["id"],
+                        {
+                            "protocolo": None,
+                            "matricula": matricula,
+                            "cartorio": cartorio,
+                            "data_pedido": None,
+                            "file_path": pdf_path,
+                            "metadata_json": metadata,
+                        },
+                    )
+
+                    if project_id:
+
+                        filename = Path(pdf_path).name
+
+                        create_document(project_id, filename, pdf_path)
 
             print("✔ Automação finalizada com sucesso")
 
