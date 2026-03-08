@@ -1,6 +1,7 @@
 from pathlib import Path
 import re
 import time
+from typing import Any
 
 from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
@@ -16,10 +17,23 @@ DEBUG_DIR = Path("/app/debug")
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _normalizar(texto: str) -> str:
+def _normalizar(texto: str | None) -> str:
     if not texto:
         return ""
     return " ".join(texto.strip().lower().split())
+
+
+def _converter_data_ptbr_para_iso(data_str: str | None) -> str | None:
+    if not data_str:
+        return None
+
+    valor = data_str.strip()
+    match = re.match(r"^(\d{2})/(\d{2})/(\d{4})$", valor)
+    if not match:
+        return None
+
+    dia, mes, ano = match.groups()
+    return f"{ano}-{mes}-{dia}"
 
 
 def _debug_page_info(page, etapa: str) -> None:
@@ -62,8 +76,11 @@ def _extrair_primeiro(texto: str, padrao: str) -> str | None:
     return " ".join(valor.split()) if valor else None
 
 
-def _extrair_bloco(texto: str, inicio: str, fim_opcoes: list[str] | None = None) -> str | None:
-    fim_regex = ""
+def _extrair_bloco(
+    texto: str,
+    inicio: str,
+    fim_opcoes: list[str] | None = None,
+) -> str | None:
     if fim_opcoes:
         fim_regex = r"(?=\s*(?:" + "|".join(re.escape(item) for item in fim_opcoes) + r")\s*)"
     else:
@@ -81,36 +98,43 @@ def _aguardar_tabela_interna(page) -> None:
     page.wait_for_selector("#Grid tbody tr", timeout=120000)
 
 
-def _abrir_pagina_pedido(page, linha, protocolo: str) -> None:
-    print(f"➡ Abrindo processo {protocolo}")
-
-    href = None
+def _linha_principal_eh_cabecalho(colunas) -> bool:
     try:
-        href = linha.locator("td").nth(0).locator("a").get_attribute("href")
+        protocolo = colunas.nth(1).inner_text().strip()
+        data = colunas.nth(2).inner_text().strip()
+        status = colunas.nth(3).inner_text().strip()
+
+        if _normalizar(protocolo) == "protocolo":
+            return True
+        if _normalizar(data) == "data":
+            return True
+        if _normalizar(status) == "status *" or _normalizar(status) == "status":
+            return True
+
+        return False
     except Exception:
-        href = None
+        return False
 
-    if href and "fncDetalhes" in href:
-        id_match = re.search(r"fncDetalhes\('?(\\d+)'?\)", href)
-        if id_match:
-            id_pedido = id_match.group(1)
-            destino = (
-                "https://ridigital.org.br/CertidaoDigital/"
-                f"lstConsultaPedidos.aspx?IDPedido={id_pedido}"
-            )
-            print(f"➡ Navegando diretamente para IDPedido={id_pedido}")
-            page.goto(destino, wait_until="domcontentloaded")
-            _aguardar_tabela_interna(page)
-            print(f"✔ Página consulta carregada: {page.url}")
-            return
 
-    with page.expect_navigation(wait_until="domcontentloaded", timeout=120000):
-        linha.locator("td").nth(0).locator("a").click()
+def _linha_interna_eh_cabecalho(colunas) -> bool:
+    try:
+        protocolo = colunas.nth(1).inner_text().strip()
+        cartorio = colunas.nth(2).inner_text().strip()
+        tipo_pesquisa = colunas.nth(3).inner_text().strip()
+        status = colunas.nth(4).inner_text().strip()
 
-    page.wait_for_url(re.compile(r".*/CertidaoDigital/lstConsultaPedidos\.aspx.*"), timeout=120000)
-    _aguardar_tabela_interna(page)
+        if _normalizar(protocolo) == "protocolo":
+            return True
+        if _normalizar(cartorio) == "cartório":
+            return True
+        if _normalizar(tipo_pesquisa) == "tipo de pesquisa":
+            return True
+        if _normalizar(status) == "status":
+            return True
 
-    print(f"✔ Página consulta carregada: {page.url}")
+        return False
+    except Exception:
+        return False
 
 
 def _capturar_numero_pedido(page) -> str | None:
@@ -118,10 +142,32 @@ def _capturar_numero_pedido(page) -> str | None:
     return _extrair_primeiro(texto_pagina, r"N[ºo]\s*Pedido\s*(P\d+[A-Z])")
 
 
+def _abrir_pagina_pedido(page, linha, protocolo: str) -> None:
+    print(f"➡ Abrindo processo {protocolo}")
+
+    try:
+        with page.expect_navigation(wait_until="domcontentloaded", timeout=120000):
+            linha.locator("td").nth(0).locator("a").click()
+
+    except PlaywrightTimeoutError:
+        print("⚠ Navegação não detectada via expect_navigation, validando URL manualmente")
+        linha.locator("td").nth(0).locator("a").click(force=True)
+
+    page.wait_for_url(
+        re.compile(r".*/CertidaoDigital/lstConsultaPedidos\.aspx.*"),
+        timeout=120000,
+    )
+
+    _aguardar_tabela_interna(page)
+    page.wait_for_timeout(1000)
+
+    print(f"✔ Página consulta carregada: {page.url}")
+
+
 def _capturar_modal_detalhes(page) -> dict[str, str | None]:
+    page.wait_for_selector("#popContent", timeout=60000)
     modal = page.locator("#popContent")
 
-    page.wait_for_selector("#popContent", timeout=60000)
     texto_modal = modal.inner_text()
 
     protocolo_modal = _extrair_bloco(
@@ -208,6 +254,7 @@ def _capturar_modal_detalhes(page) -> dict[str, str | None]:
     )
 
     matricula = None
+
     if dados_solicitacao:
         matricula = _extrair_primeiro(
             dados_solicitacao,
@@ -227,12 +274,57 @@ def _capturar_modal_detalhes(page) -> dict[str, str | None]:
     }
 
 
+def _abrir_e_capturar_detalhes(page, linha_int) -> dict[str, str | None]:
+    print("➡ Abrindo detalhes do pedido")
+
+    col = linha_int.locator("td")
+
+    try:
+        link_detalhes = col.nth(0).locator("a")
+        link_detalhes.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+
+        try:
+            link_detalhes.click(timeout=30000)
+        except PlaywrightTimeoutError:
+            link_detalhes.click(force=True, timeout=30000)
+
+        page.wait_for_selector("#popContent", timeout=60000)
+        print("✔ Modal carregado")
+
+        detalhes = _capturar_modal_detalhes(page)
+
+        fechar_btn = page.locator("#popContent input[value='Fechar']")
+        if fechar_btn.count() > 0:
+            try:
+                fechar_btn.click(timeout=15000)
+            except PlaywrightTimeoutError:
+                fechar_btn.click(force=True, timeout=15000)
+
+        page.wait_for_timeout(800)
+
+        return detalhes
+
+    except Exception as e:
+        print(f"⚠ Falha ao abrir/capturar modal: {e}")
+        _debug_snapshot(page, "erro_modal_detalhes")
+        return {
+            "protocolo_modal": None,
+            "matricula": None,
+            "tipo_certidao": None,
+            "pedido_por": None,
+            "cartorio_cidade_modal": None,
+            "status_modal": None,
+            "resposta_modal": None,
+            "dados_solicitacao": None,
+            "finalidade": None,
+        }
+
+
 def _baixar_arquivo_se_disponivel(page, linha_int, status_int: str) -> str | None:
     if _normalizar(status_int) != "respondido":
         print("➡ Item não respondido, sem download")
         return None
-
-    file_path: str | None = None
 
     try:
         print("➡ Baixando certidão")
@@ -243,23 +335,44 @@ def _baixar_arquivo_se_disponivel(page, linha_int, status_int: str) -> str | Non
             print("⚠ Coluna de download sem link disponível")
             return None
 
+        download_link.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+
         with page.expect_download(timeout=60000) as download_info:
-            download_link.click()
+            try:
+                download_link.click(timeout=15000)
+            except PlaywrightTimeoutError:
+                download_link.click(force=True, timeout=15000)
 
         download = download_info.value
         destino = DOWNLOAD_DIR / download.suggested_filename
         download.save_as(destino)
 
         print(f"✔ PDF salvo: {destino}")
-        file_path = str(destino)
+        return str(destino)
 
     except Exception as e:
         print(f"⚠ Falha download: {e}")
+        return None
 
-    return file_path
+
+def _voltar_para_listagem_principal(page) -> None:
+    print("➡ Voltando para listagem principal")
+
+    page.go_back(wait_until="domcontentloaded")
+
+    page.wait_for_url(
+        re.compile(r".*/CertidaoDigital/lstPedidos\.aspx.*"),
+        timeout=120000,
+    )
+
+    _aguardar_tabela_principal(page)
+    page.wait_for_timeout(1000)
+
+    print("✔ Retornou para listagem principal")
 
 
-def executar_job_ri_digital_consultar_certidao(job, login, senha):
+def executar_job_ri_digital_consultar_certidao(job: dict[str, Any], login: str, senha: str):
     payload = job.get("payload_json") or {}
 
     protocolo_busca = payload.get("protocolo")
@@ -276,10 +389,12 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
 
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
-
         page.set_default_timeout(120000)
 
         try:
+            # ------------------------------------------------
+            # LOGIN
+            # ------------------------------------------------
             print("➡ Login RI Digital")
 
             page.goto(
@@ -303,7 +418,6 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
             # ------------------------------------------------
             # CERTIDÃO DIGITAL
             # ------------------------------------------------
-
             print("➡ Acessando página Certidão Digital")
 
             page.goto(
@@ -319,7 +433,6 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
             # ------------------------------------------------
             # TABELA PRINCIPAL
             # ------------------------------------------------
-
             linhas = page.locator("#Grid tbody tr")
             total = linhas.count()
 
@@ -335,8 +448,13 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
                 if qtd_colunas < 4:
                     continue
 
+                if _linha_principal_eh_cabecalho(colunas):
+                    print(f"⚠ Ignorando cabeçalho da tabela principal na linha {i + 1}")
+                    continue
+
                 protocolo = colunas.nth(1).inner_text().strip()
                 data = colunas.nth(2).inner_text().strip()
+                data_iso = _converter_data_ptbr_para_iso(data)
                 status = colunas.nth(3).inner_text().strip()
 
                 if not protocolo:
@@ -361,15 +479,12 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
                 # ------------------------------------------------
                 # Nº PEDIDO
                 # ------------------------------------------------
-
                 numero_pedido = _capturar_numero_pedido(page)
-
                 print(f"✔ Nº Pedido: {numero_pedido}")
 
                 # ------------------------------------------------
                 # TABELA INTERNA
                 # ------------------------------------------------
-
                 _aguardar_tabela_interna(page)
 
                 linhas_internas = page.locator("#Grid tbody tr")
@@ -387,10 +502,18 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
                     if qtd_col_int < 7:
                         continue
 
+                    if _linha_interna_eh_cabecalho(col):
+                        print(f"⚠ Ignorando cabeçalho da tabela interna na linha {j + 1}")
+                        continue
+
                     protocolo_int = col.nth(1).inner_text().strip()
                     cartorio = col.nth(2).inner_text().strip()
                     tipo_pesquisa = col.nth(3).inner_text().strip()
                     status_int = col.nth(4).inner_text().strip()
+
+                    if not protocolo_int:
+                        print(f"⚠ Ignorando linha interna vazia na linha {j + 1}")
+                        continue
 
                     print(f"   ➜ Item {j + 1}/{total_internas}")
                     print(f"      Protocolo interno: {protocolo_int}")
@@ -401,46 +524,16 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
                     # ------------------------------------------------
                     # DETALHES
                     # ------------------------------------------------
-
-                    try:
-                        print("➡ Abrindo detalhes do pedido")
-
-                        col.nth(0).locator("a").click()
-                        page.wait_for_selector("#popContent", timeout=60000)
-
-                        print("✔ Modal carregado")
-
-                        detalhes = _capturar_modal_detalhes(page)
-
-                        modal = page.locator("#popContent")
-                        modal.locator("input[value='Fechar']").click()
-                        page.wait_for_timeout(800)
-
-                    except Exception as e:
-                        print(f"⚠ Falha ao abrir/capturar modal: {e}")
-                        _debug_snapshot(page, "erro_modal_detalhes")
-                        detalhes = {
-                            "protocolo_modal": None,
-                            "matricula": None,
-                            "tipo_certidao": None,
-                            "pedido_por": None,
-                            "cartorio_cidade_modal": None,
-                            "status_modal": None,
-                            "resposta_modal": None,
-                            "dados_solicitacao": None,
-                            "finalidade": None,
-                        }
+                    detalhes = _abrir_e_capturar_detalhes(page, linha_int)
 
                     # ------------------------------------------------
                     # DOWNLOAD
                     # ------------------------------------------------
-
                     file_path = _baixar_arquivo_se_disponivel(page, linha_int, status_int)
 
                     # ------------------------------------------------
                     # SALVAR RESULTADO
                     # ------------------------------------------------
-
                     metadata = {
                         "numero_pedido": numero_pedido,
                         "tipo_certidao": detalhes.get("tipo_certidao"),
@@ -461,7 +554,7 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
                             "protocolo": detalhes.get("protocolo_modal") or protocolo_int,
                             "matricula": detalhes.get("matricula"),
                             "cartorio": cartorio,
-                            "data_pedido": data,
+                            "data_pedido": data_iso,
                             "file_path": file_path,
                             "metadata_json": metadata,
                         },
@@ -477,17 +570,10 @@ def executar_job_ri_digital_consultar_certidao(job, login, senha):
                 # ------------------------------------------------
                 # VOLTAR PARA LISTA
                 # ------------------------------------------------
-
-                print("➡ Voltando para listagem principal")
-
-                page.go_back(wait_until="domcontentloaded")
-                page.wait_for_url(re.compile(r".*/CertidaoDigital/lstPedidos\.aspx.*"), timeout=120000)
-                _aguardar_tabela_principal(page)
-                page.wait_for_timeout(1000)
-
-                print("✔ Retornou para listagem principal")
+                _voltar_para_listagem_principal(page)
 
             print("✔ Consulta finalizada")
+            return True
 
         except Exception as e:
             print("⚠ ERRO NA AUTOMAÇÃO CONSULTAR CERTIDÃO")
