@@ -460,17 +460,20 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # aguarda ASP.NET atualizar tela
             ctx.wait_for_selector("#txtTag", timeout=60000)
 
-            # ------------------------------------------------
+                       # ------------------------------------------------
             # MATRÍCULA
             # ------------------------------------------------
 
             print(f"➡ Informando matrícula {matricula}")
 
+            ctx.wait_for_selector("#txtTag", timeout=60000)
+
             ctx.fill("#txtTag", "")
 
             ctx.fill("#txtTag", matricula)
 
-            ctx.keyboard.press("Enter")
+            # confirmar matrícula (teclado pertence à page, não ao frame)
+            page.keyboard.press("Enter")
 
             page.wait_for_timeout(1000)
 
@@ -549,7 +552,6 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             # ASP.NET faz micro atualização da tela
             page.wait_for_timeout(1500)
-
             # ------------------------------------------------
             # PAGAMENTO
             # ------------------------------------------------
