@@ -319,28 +319,83 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             print(f"➡ Selecionando cartório: {cartorio}")
 
-            cartorio_normalizado = cartorio.strip().lower()
+            # aguarda cartórios carregarem após postback da cidade
+            ctx.wait_for_function(
+                """
+                () => {
+                    const sel = document.querySelector('#Cartorio_ddlCartorio');
+                    return sel && sel.options && sel.options.length > 1;
+                }
+                """,
+                timeout=60000
+            )
 
             opcoes_cartorio = ctx.locator("#Cartorio_ddlCartorio option").all()
 
-            cartorio_value = None
+            # remove "(Selecione)"
+            opcoes_validas = []
 
             for opt in opcoes_cartorio:
 
-                texto = opt.inner_text().strip().lower()
+                value = opt.get_attribute("value")
 
-                if cartorio_normalizado in texto:
+                if value and value != "-1":
 
-                    cartorio_value = opt.get_attribute("value")
+                    opcoes_validas.append(opt)
 
-                    break
+            # ------------------------------------------------
+            # CASO 1 — SOMENTE UM CARTÓRIO
+            # ------------------------------------------------
 
-            if not cartorio_value:
-                raise Exception(f"Cartório '{cartorio}' não encontrado")
+            if len(opcoes_validas) == 1:
 
-            ctx.select_option("#Cartorio_ddlCartorio", value=cartorio_value)
+                unico = opcoes_validas[0]
 
-            print("✔ Cartório selecionado")
+                cartorio_value = unico.get_attribute("value")
+                cartorio_label = unico.inner_text().strip()
+
+                ctx.select_option("#Cartorio_ddlCartorio", value=cartorio_value)
+
+                print(f"✔ Cartório único selecionado automaticamente: {cartorio_label}")
+
+            else:
+
+                # ------------------------------------------------
+                # CASO 2 — MAIS DE UM CARTÓRIO
+                # ------------------------------------------------
+
+                cartorio_numero = cartorio.strip().lower()
+
+                cartorio_value = None
+                cartorio_label = None
+
+                for opt in opcoes_validas:
+
+                    texto = opt.inner_text().strip().lower()
+
+                    texto_limpo = (
+                        texto.replace("º", "")
+                        .replace("-", "")
+                        .replace("  ", " ")
+                        .strip()
+                    )
+
+                    if texto_limpo.startswith(cartorio_numero):
+
+                        cartorio_value = opt.get_attribute("value")
+                        cartorio_label = opt.inner_text().strip()
+
+                        break
+
+                if not cartorio_value:
+
+                    raise Exception(
+                        f"Cartório '{cartorio}' não encontrado nas opções disponíveis"
+                    )
+
+                ctx.select_option("#Cartorio_ddlCartorio", value=cartorio_value)
+
+                print(f"✔ Cartório selecionado: {cartorio_label}")
 
             page.wait_for_timeout(1000)
 
