@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright
 from app.db import insert_result, create_document
 
 
-DOWNLOAD_DIR = Path("/app/data/certidoes")
+DOWNLOAD_DIR = Path("/app/app/uploads/ri-digital")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 DEBUG_DIR = Path("/app/debug")
@@ -639,6 +639,11 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                         arquivos_pdf[0] if arquivos_pdf else None
                     )
 
+                    relative_path = None
+
+                    if pdf_path:
+                        relative_path = f"ri-digital/{Path(pdf_path).name}"
+
                     metadata = {
                         "tipo_certidao": r["tipo_certidao"],
                         "tipo_pedido": r["tipo_pedido"],
@@ -654,7 +659,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                             "matricula": matricula,
                             "cartorio": r["cartorio"],
                             "data_pedido": None,
-                            "file_path": pdf_path,
+                            "file_path": relative_path,
                             "metadata_json": metadata,
                         },
                     )
@@ -663,12 +668,18 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
                         filename = Path(pdf_path).name
 
-                        create_document(project_id, filename, pdf_path)
+                        create_document(
+                            project_id,
+                            filename,
+                            relative_path,
+                        )
 
             else:
 
-                # fallback: se não conseguiu capturar tabela, ainda salva os PDFs
+                # fallback: se não conseguiu capturar tabela, ainda salva PDFs
                 for pdf_path in arquivos_pdf:
+
+                    relative_path = f"ri-digital/{Path(pdf_path).name}"
 
                     metadata = {
                         "pdf_status": "OK"
@@ -681,7 +692,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                             "matricula": matricula,
                             "cartorio": cartorio,
                             "data_pedido": None,
-                            "file_path": pdf_path,
+                            "file_path": relative_path,
                             "metadata_json": metadata,
                         },
                     )
@@ -690,7 +701,11 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
                         filename = Path(pdf_path).name
 
-                        create_document(project_id, filename, pdf_path)
+                        create_document(
+                            project_id,
+                            filename,
+                            relative_path,
+                        )
 
             print("✔ Automação finalizada com sucesso")
 

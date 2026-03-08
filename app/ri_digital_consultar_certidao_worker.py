@@ -10,7 +10,7 @@ from playwright.sync_api import (
 
 from app.db import insert_result, create_document
 
-DOWNLOAD_DIR = Path("/app/data/certidoes")
+DOWNLOAD_DIR = Path("/app/app/uploads/ri-digital")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 DEBUG_DIR = Path("/app/debug")
@@ -349,7 +349,12 @@ def _baixar_arquivo_se_disponivel(page, linha_int, status_int: str) -> str | Non
         download.save_as(destino)
 
         print(f"✔ PDF salvo: {destino}")
-        return str(destino)
+
+        relative_path = f"ri-digital/{destino.name}"
+
+        print(f"✔ Caminho relativo salvo no banco: {relative_path}")
+
+        return relative_path
 
     except Exception as e:
         print(f"⚠ Falha download: {e}")
