@@ -313,7 +313,7 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                 """
             )
 
-            # ------------------------------------------------
+                       # ------------------------------------------------
             # CARTÓRIO
             # ------------------------------------------------
 
@@ -364,13 +364,14 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                 # CASO 2 — MAIS DE UM CARTÓRIO
                 # ------------------------------------------------
 
-                cartorio_numero = cartorio.strip().lower()
+                cartorio_input = str(cartorio).strip().lower()
 
                 cartorio_value = None
                 cartorio_label = None
 
                 for opt in opcoes_validas:
 
+                    value = opt.get_attribute("value")
                     texto = opt.inner_text().strip().lower()
 
                     texto_limpo = (
@@ -380,11 +381,34 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                         .strip()
                     )
 
-                    if texto_limpo.startswith(cartorio_numero):
+                    # ------------------------------------------------
+                    # CASO A — VALUE DIRETO (2663)
+                    # ------------------------------------------------
 
-                        cartorio_value = opt.get_attribute("value")
+                    if cartorio_input == value:
+
+                        cartorio_value = value
                         cartorio_label = opt.inner_text().strip()
+                        break
 
+                    # ------------------------------------------------
+                    # CASO B — NÚMERO (1 → 01º)
+                    # ------------------------------------------------
+
+                    if texto_limpo.startswith(cartorio_input):
+
+                        cartorio_value = value
+                        cartorio_label = opt.inner_text().strip()
+                        break
+
+                    # ------------------------------------------------
+                    # CASO C — TEXTO COMPLETO
+                    # ------------------------------------------------
+
+                    if cartorio_input in texto:
+
+                        cartorio_value = value
+                        cartorio_label = opt.inner_text().strip()
                         break
 
                 if not cartorio_value:
