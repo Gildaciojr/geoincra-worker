@@ -1,4 +1,5 @@
 services:
+
   geoincra_worker:
     build: .
     container_name: geoincra_worker
@@ -9,6 +10,7 @@ services:
       DATABASE_URL: postgresql://geoincra_user:domboscojacutinga33@geoincra_postgres:5432/geoincra_db
       DATA_DIR: /data
       BACKEND_UPLOADS_BASE: /app/app/uploads
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
 
     volumes:
       - geoincra_uploads:/data
@@ -16,9 +18,11 @@ services:
     networks:
       - backend_default
 
+
 volumes:
   geoincra_uploads:
     external: true
+
 
 networks:
   backend_default:
