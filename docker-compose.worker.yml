@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
 
   geoincra_worker:
@@ -5,24 +7,34 @@ services:
     container_name: geoincra_worker
     restart: always
 
+    # execução correta do worker como módulo Python
+    command: python -m app.main
 
     environment:
       PYTHONUNBUFFERED: "1"
+
+      # conexão com banco
       DATABASE_URL: postgresql://geoincra_user:domboscojacutinga33@geoincra_postgres:5432/geoincra_db
+
+      # diretório de dados compartilhados
       DATA_DIR: /data
+
+      # base de uploads do backend
       BACKEND_UPLOADS_BASE: /app/app/uploads
+
+      # chave OpenAI
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
-      # permite importar código do backend
+      # permite importar worker + backend
       PYTHONPATH: /app:/backend
 
     volumes:
 
-      # uploads compartilhados
+      # uploads compartilhados com backend
       - geoincra_uploads:/data
       - geoincra_uploads:/app/app/uploads
 
-      # código do backend em pasta separada
+      # monta código do backend dentro do worker
       - /opt/geoincra/backend:/backend
 
     networks:
@@ -30,10 +42,12 @@ services:
 
 
 volumes:
+
   geoincra_uploads:
     external: true
 
 
 networks:
+
   backend_default:
     external: true
