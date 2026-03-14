@@ -5,7 +5,6 @@ services:
     container_name: geoincra_worker
     restart: always
 
-    command: python app/main.py
 
     environment:
       PYTHONUNBUFFERED: "1"
