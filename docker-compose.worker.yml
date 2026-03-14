@@ -5,6 +5,8 @@ services:
     container_name: geoincra_worker
     restart: always
 
+    command: python app/main.py
+
     environment:
       PYTHONUNBUFFERED: "1"
       DATABASE_URL: postgresql://geoincra_user:domboscojacutinga33@geoincra_postgres:5432/geoincra_db
@@ -12,13 +14,17 @@ services:
       BACKEND_UPLOADS_BASE: /app/app/uploads
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
+      # permite importar código do backend
+      PYTHONPATH: /backend_app
+
     volumes:
-      # volume compartilhado de uploads (backend + worker)
+
+      # uploads compartilhados backend/worker
       - geoincra_uploads:/data
       - geoincra_uploads:/app/app/uploads
 
-      # acesso ao código do backend para usar services/models/crud
-      - /opt/geoincra/backend/app:/app/app
+      # backend montado separado (NÃO sobrescreve worker)
+      - /opt/geoincra/backend/app:/backend_app
 
     networks:
       - backend_default

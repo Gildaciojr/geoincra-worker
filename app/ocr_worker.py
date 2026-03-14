@@ -9,11 +9,28 @@ from psycopg2.extras import RealDictCursor, Json
 from google.cloud import vision
 from openai import OpenAI
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from app.settings import DATABASE_URL, BACKEND_UPLOADS_BASE
+
+# pipeline importado do backend montado em /backend_app
+from backend_app.services.ocr_pipeline_service import OcrPipelineService
 
 
 vision_client = vision.ImageAnnotatorClient()
 
+# =========================================================
+# SQLAlchemy engine (global)
+# =========================================================
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+
+# =========================================================
+# OPENAI CLIENT
+# =========================================================
 
 def get_openai_client() -> OpenAI:
 
@@ -25,9 +42,17 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
+# =========================================================
+# DB CONNECTION (psycopg2)
+# =========================================================
+
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
+
+# =========================================================
+# PATH RESOLUTION
+# =========================================================
 
 def _resolve_file_path(relative_path: str) -> str:
 
@@ -46,6 +71,10 @@ def _resolve_file_path(relative_path: str) -> str:
     )
 
 
+# =========================================================
+# FILE TYPE HELPERS
+# =========================================================
+
 def _is_pdf(file_path: str) -> bool:
     return file_path.lower().endswith(".pdf")
 
@@ -53,6 +82,10 @@ def _is_pdf(file_path: str) -> bool:
 def _is_image(file_path: str) -> bool:
     return file_path.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
 
+
+# =========================================================
+# JSON SAFE LOAD
+# =========================================================
 
 def _safe_json_loads(content: str):
 
@@ -62,6 +95,10 @@ def _safe_json_loads(content: str):
     except Exception:
         return {"resultado": content}
 
+
+# =========================================================
+# DB QUERIES
+# =========================================================
 
 def get_document(document_id: int):
 
@@ -87,7 +124,7 @@ def get_prompt(prompt_id: int):
 
             cur.execute(
                 """
-                SELECT id, nome, prompt
+                SELECT id, nome, prompt, categoria
                 FROM ocr_prompts
                 WHERE id = %s
                 AND ativo = TRUE
@@ -97,6 +134,10 @@ def get_prompt(prompt_id: int):
 
             return cur.fetchone()
 
+
+# =========================================================
+# UPDATE RESULT SUCCESS
+# =========================================================
 
 def update_result_success(document_id: int, texto: str, dados_json: dict):
 
@@ -123,13 +164,17 @@ def update_result_success(document_id: int, texto: str, dados_json: dict):
                 """,
                 (
                     texto,
-                    Json(dados_json),  # 🔥 JSON real
+                    Json(dados_json),
                     document_id,
                 ),
             )
 
             conn.commit()
 
+
+# =========================================================
+# UPDATE RESULT ERROR
+# =========================================================
 
 def update_result_error(document_id: int, error_message: str):
 
@@ -157,6 +202,10 @@ def update_result_error(document_id: int, error_message: str):
             conn.commit()
 
 
+# =========================================================
+# GOOGLE VISION OCR
+# =========================================================
+
 def extrair_texto_imagem_google(file_path: str) -> str:
 
     with open(file_path, "rb") as f:
@@ -179,6 +228,10 @@ def extrair_texto_imagem_google(file_path: str) -> str:
 
     return ""
 
+
+# =========================================================
+# PDF TEXT EXTRACTION
+# =========================================================
 
 def extrair_texto_pdf_nativo(file_path: str) -> str:
 
@@ -231,6 +284,10 @@ def extrair_texto_pdf_ocr_google(file_path: str) -> str:
     return "\n\n".join(partes).strip()
 
 
+# =========================================================
+# DOCUMENT TEXT EXTRACTION
+# =========================================================
+
 def extrair_texto_documento(file_path: str) -> str:
 
     if _is_image(file_path):
@@ -249,6 +306,10 @@ def extrair_texto_documento(file_path: str) -> str:
         "Formato não suportado para OCR. Permitidos: PDF, JPG, JPEG, PNG, WEBP."
     )
 
+
+# =========================================================
+# OPENAI INTERPRETATION
+# =========================================================
 
 def interpretar_texto(prompt: str, texto: str):
 
@@ -279,6 +340,10 @@ def interpretar_texto(prompt: str, texto: str):
 
     return _safe_json_loads(content)
 
+
+# =========================================================
+# OCR JOB EXECUTION
+# =========================================================
 
 def executar_ocr_job(job: dict):
 
@@ -328,25 +393,17 @@ def executar_ocr_job(job: dict):
         print("✅ OCR concluído")
 
         # =====================================================
-        # PIPELINE PÓS-OCR
+        # PIPELINE TÉCNICO
         # =====================================================
 
         print("⚙️ Executando pipeline técnico...")
-
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import sessionmaker
-
-        from app.services.ocr_pipeline_service import OcrPipelineService
-
-        engine = create_engine(DATABASE_URL)
-        SessionLocal = sessionmaker(bind=engine)
 
         with SessionLocal() as db:
 
             OcrPipelineService.executar_pipeline(
                 db=db,
                 document_id=document_id,
-                prompt_categoria=prompt["categoria"],
+                prompt_categoria=prompt.get("categoria"),
                 dados_extraidos=dados,
             )
 
