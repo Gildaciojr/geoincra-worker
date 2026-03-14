@@ -19,11 +19,11 @@ services:
 
     volumes:
 
-      # uploads compartilhados backend/worker
+      # uploads compartilhados
       - geoincra_uploads:/data
       - geoincra_uploads:/app/app/uploads
 
-      # backend montado separado (NÃO sobrescreve worker)
+      # código do backend em pasta separada
       - /opt/geoincra/backend/app:/backend_app
 
     networks:
