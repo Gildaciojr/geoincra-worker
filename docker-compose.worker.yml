@@ -14,7 +14,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # permite importar código do backend
-      PYTHONPATH: /app:/backend_app
+      PYTHONPATH: /backend
 
     volumes:
 
@@ -23,7 +23,7 @@ services:
       - geoincra_uploads:/app/app/uploads
 
       # código do backend em pasta separada
-      - /opt/geoincra/backend/app:/backend_app
+      - /opt/geoincra/backend:/backend
 
     networks:
       - backend_default
