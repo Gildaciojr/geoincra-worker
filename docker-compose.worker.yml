@@ -14,7 +14,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # permite importar código do backend
-      PYTHONPATH: /backend_app
+      PYTHONPATH: /app:/backend_app
 
     volumes:
 
