@@ -5,3 +5,4 @@ python-dotenv==1.0.1
 google-cloud-vision
 openai
 PyMuPDF==1.26.4
+SQLAlchemy==2.0.30
