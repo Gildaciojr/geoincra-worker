@@ -13,8 +13,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
     volumes:
+      # volume compartilhado de uploads (backend + worker)
       - geoincra_uploads:/data
       - geoincra_uploads:/app/app/uploads
+
+      # acesso ao código do backend para usar services/models/crud
+      - /opt/geoincra/backend/app:/app/app
 
     networks:
       - backend_default
