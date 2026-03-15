@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from app.settings import DATABASE_URL, BACKEND_UPLOADS_BASE
 
 # pipeline importado do backend montado em /backend_app
-from app.services.ocr_pipeline_service import OcrPipelineService
+from backend.app.services.ocr_pipeline_service import OcrPipelineService
 
 
 vision_client = vision.ImageAnnotatorClient()
