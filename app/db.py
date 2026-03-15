@@ -1,6 +1,7 @@
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
-from app.settings import DATABASE_URL
+from psycopg2.extras import Json, RealDictCursor
+
+from settings import DATABASE_URL
 
 
 def get_connection():
@@ -14,7 +15,8 @@ def fetch_pending_job():
     """
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE automation_jobs
                 SET status = 'PROCESSING',
                     started_at = NOW()
@@ -33,7 +35,8 @@ def fetch_pending_job():
                     FOR UPDATE SKIP LOCKED
                 )
                 RETURNING *
-            """)
+                """
+            )
             job = cur.fetchone()
             conn.commit()
             return job
@@ -45,13 +48,16 @@ def fetch_ri_digital_credentials(user_id: int):
     """
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT login, password_encrypted
                 FROM external_credentials
                 WHERE user_id = %s
                   AND provider = 'RI_DIGITAL'
                   AND active = TRUE
-            """, (user_id,))
+                """,
+                (user_id,),
+            )
             return cur.fetchone()
 
 
@@ -61,7 +67,8 @@ def update_job_status(job_id, status, error_message=None):
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE automation_jobs
                 SET status = %s,
                     error_message = %s,
@@ -70,7 +77,9 @@ def update_job_status(job_id, status, error_message=None):
                         ELSE finished_at
                     END
                 WHERE id = %s
-            """, (status, error_message, status, job_id))
+                """,
+                (status, error_message, status, job_id),
+            )
             conn.commit()
 
 
@@ -84,7 +93,8 @@ def create_document(project_id, filename, file_path):
 
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO documents (
                     project_id,
                     matricula_id,
@@ -101,7 +111,9 @@ def create_document(project_id, filename, file_path):
                         'Matrícula RI Digital',
                         %s, NOW())
                 RETURNING id
-            """, (project_id, filename, filename, file_path))
+                """,
+                (project_id, filename, filename, file_path),
+            )
             doc = cur.fetchone()
             conn.commit()
             return doc["id"] if doc else None
@@ -114,7 +126,8 @@ def insert_result(job_id, data: dict):
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO automation_results (
                     job_id,
                     protocolo,
@@ -125,13 +138,15 @@ def insert_result(job_id, data: dict):
                     metadata_json
                 )
                 VALUES (%s,%s,%s,%s,%s,%s,%s)
-            """, (
-                job_id,
-                data.get("protocolo"),
-                data.get("matricula"),
-                data.get("cartorio"),
-                data.get("data_pedido"),
-                data.get("file_path"),
-                Json(data.get("metadata_json") or {}),
-            ))
+                """,
+                (
+                    job_id,
+                    data.get("protocolo"),
+                    data.get("matricula"),
+                    data.get("cartorio"),
+                    data.get("data_pedido"),
+                    data.get("file_path"),
+                    Json(data.get("metadata_json") or {}),
+                ),
+            )
             conn.commit()

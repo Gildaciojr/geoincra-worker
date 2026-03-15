@@ -8,7 +8,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from app.db import insert_result, create_document
+from db import insert_result, create_document
 
 DOWNLOAD_DIR = Path("/app/app/uploads/ri-digital")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
