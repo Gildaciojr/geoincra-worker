@@ -26,7 +26,7 @@ RUN playwright install chromium
 
 COPY app ./app
 
-ENV PYTHONPATH=/app/app:/backend
+ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "/app/app/main.py"]
+CMD ["python", "app/main.py"]

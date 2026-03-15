@@ -5,24 +5,16 @@ services:
     container_name: geoincra_worker
     restart: always
 
-    command: python /app/app/main.py
-
     environment:
       PYTHONUNBUFFERED: "1"
       DATABASE_URL: postgresql://geoincra_user:domboscojacutinga33@geoincra_postgres:5432/geoincra_db
-
-      SECRET_KEY: worker_internal_secret
-
       DATA_DIR: /data
       BACKEND_UPLOADS_BASE: /app/app/uploads
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
-      PYTHONPATH: /app/app:/backend
-
     volumes:
       - geoincra_uploads:/data
       - geoincra_uploads:/app/app/uploads
-      - /opt/geoincra/backend:/backend
 
     networks:
       - backend_default
@@ -31,6 +23,7 @@ services:
 volumes:
   geoincra_uploads:
     external: true
+
 
 networks:
   backend_default:
