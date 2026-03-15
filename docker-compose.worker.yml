@@ -26,7 +26,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # permite importar worker + backend
-      PYTHONPATH: /app:/backend
+      PYTHONPATH: /backend:/app
 
     volumes:
 
