@@ -11,18 +11,11 @@ from psycopg2.extras import Json, RealDictCursor
 from settings import BACKEND_UPLOADS_BASE, DATABASE_URL
 
 
-# =========================================================
-# GOOGLE VISION CLIENT
-# =========================================================
-
 vision_client = vision.ImageAnnotatorClient()
 
 
-# =========================================================
-# OPENAI CLIENT
-# =========================================================
-
 def get_openai_client() -> OpenAI:
+
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
@@ -31,17 +24,9 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-# =========================================================
-# DB CONNECTION
-# =========================================================
-
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
-
-# =========================================================
-# PATH RESOLUTION
-# =========================================================
 
 def _resolve_file_path(relative_path: str) -> str:
 
@@ -60,10 +45,6 @@ def _resolve_file_path(relative_path: str) -> str:
     )
 
 
-# =========================================================
-# FILE TYPE HELPERS
-# =========================================================
-
 def _is_pdf(file_path: str) -> bool:
     return file_path.lower().endswith(".pdf")
 
@@ -72,20 +53,18 @@ def _is_image(file_path: str) -> bool:
     return file_path.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
 
 
-# =========================================================
-# JSON SAFE LOAD
-# =========================================================
-
 def _safe_json_loads(content: str):
+
+    content = content.strip()
+
+    content = content.replace("```json", "")
+    content = content.replace("```", "")
+
     try:
         return json.loads(content)
     except Exception:
         return {"resultado": content}
 
-
-# =========================================================
-# DB QUERIES
-# =========================================================
 
 def get_document(document_id: int):
 
@@ -122,10 +101,6 @@ def get_prompt(prompt_id: int):
             return cur.fetchone()
 
 
-# =========================================================
-# UPDATE RESULT SUCCESS
-# =========================================================
-
 def update_result_success(document_id: int, texto: str, dados_json: dict):
 
     with get_connection() as conn:
@@ -159,10 +134,6 @@ def update_result_success(document_id: int, texto: str, dados_json: dict):
             conn.commit()
 
 
-# =========================================================
-# UPDATE RESULT ERROR
-# =========================================================
-
 def update_result_error(document_id: int, error_message: str):
 
     with get_connection() as conn:
@@ -189,10 +160,6 @@ def update_result_error(document_id: int, error_message: str):
             conn.commit()
 
 
-# =========================================================
-# GOOGLE VISION OCR
-# =========================================================
-
 def extrair_texto_imagem_google(file_path: str) -> str:
 
     with open(file_path, "rb") as f:
@@ -216,13 +183,9 @@ def extrair_texto_imagem_google(file_path: str) -> str:
     return ""
 
 
-# =========================================================
-# PDF TEXT EXTRACTION
-# =========================================================
-
 def extrair_texto_pdf_nativo(file_path: str) -> str:
 
-    partes: list[str] = []
+    partes = []
 
     with fitz.open(file_path) as doc:
 
@@ -238,13 +201,13 @@ def extrair_texto_pdf_nativo(file_path: str) -> str:
 
 def extrair_texto_pdf_ocr_google(file_path: str) -> str:
 
-    partes: list[str] = []
+    partes = []
 
     with fitz.open(file_path) as doc:
 
         for page_index, page in enumerate(doc):
 
-            pix = page.get_pixmap(dpi=220, alpha=False)
+            pix = page.get_pixmap(dpi=300, alpha=False)
 
             png_bytes = pix.tobytes("png")
 
@@ -271,10 +234,6 @@ def extrair_texto_pdf_ocr_google(file_path: str) -> str:
     return "\n\n".join(partes).strip()
 
 
-# =========================================================
-# DOCUMENT TEXT EXTRACTION
-# =========================================================
-
 def extrair_texto_documento(file_path: str) -> str:
 
     if _is_image(file_path):
@@ -284,19 +243,17 @@ def extrair_texto_documento(file_path: str) -> str:
 
         texto_nativo = extrair_texto_pdf_nativo(file_path)
 
-        if len(texto_nativo.strip()) >= 80:
-            return texto_nativo
+        texto_ocr = extrair_texto_pdf_ocr_google(file_path)
 
-        return extrair_texto_pdf_ocr_google(file_path)
+        if len(texto_ocr) > len(texto_nativo):
+            return texto_ocr
+
+        return texto_nativo
 
     raise Exception(
         "Formato não suportado para OCR. Permitidos: PDF, JPG, JPEG, PNG, WEBP."
     )
 
-
-# =========================================================
-# OPENAI INTERPRETATION
-# =========================================================
 
 def interpretar_texto(prompt: str, texto: str):
 
@@ -328,10 +285,6 @@ def interpretar_texto(prompt: str, texto: str):
     return _safe_json_loads(content)
 
 
-# =========================================================
-# BACKEND PIPELINE CALL
-# =========================================================
-
 def chamar_pipeline_backend(document_id: int, categoria: str, dados: dict):
 
     backend_url = os.getenv("BACKEND_INTERNAL_URL", "http://geoincra_backend:8000")
@@ -351,10 +304,6 @@ def chamar_pipeline_backend(document_id: int, categoria: str, dados: dict):
             f"Erro ao chamar pipeline backend: {response.status_code} {response.text}"
         )
 
-
-# =========================================================
-# OCR JOB EXECUTION
-# =========================================================
 
 def executar_ocr_job(job: dict):
 
