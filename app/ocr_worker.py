@@ -1,9 +1,9 @@
 import json
 import os
-import requests
 
 import fitz
 import psycopg2
+import requests
 from google.cloud import vision
 from openai import OpenAI
 from psycopg2.extras import Json, RealDictCursor
@@ -15,7 +15,6 @@ vision_client = vision.ImageAnnotatorClient()
 
 
 def get_openai_client() -> OpenAI:
-
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
@@ -29,7 +28,6 @@ def get_connection():
 
 
 def _resolve_file_path(relative_path: str) -> str:
-
     primary = os.path.join(BACKEND_UPLOADS_BASE, relative_path)
 
     if os.path.exists(primary):
@@ -54,9 +52,7 @@ def _is_image(file_path: str) -> bool:
 
 
 def _safe_json_loads(content: str):
-
     content = content.strip()
-
     content = content.replace("```json", "")
     content = content.replace("```", "")
 
@@ -67,10 +63,8 @@ def _safe_json_loads(content: str):
 
 
 def get_document(document_id: int):
-
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-
             cur.execute(
                 """
                 SELECT id, file_path, original_filename, stored_filename, content_type
@@ -79,15 +73,12 @@ def get_document(document_id: int):
                 """,
                 (document_id,),
             )
-
             return cur.fetchone()
 
 
 def get_prompt(prompt_id: int):
-
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-
             cur.execute(
                 """
                 SELECT id, nome, prompt, categoria
@@ -97,15 +88,12 @@ def get_prompt(prompt_id: int):
                 """,
                 (prompt_id,),
             )
-
             return cur.fetchone()
 
 
-def update_result_success(document_id: int, texto: str, dados_json: dict):
-
+def update_result_success(ocr_result_id: int, texto: str, dados_json: dict):
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 UPDATE ocr_results
@@ -116,29 +104,20 @@ def update_result_success(document_id: int, texto: str, dados_json: dict):
                     dados_extraidos_json = %s,
                     erro = NULL,
                     updated_at = NOW()
-                WHERE id = (
-                    SELECT id
-                    FROM ocr_results
-                    WHERE document_id = %s
-                    ORDER BY id DESC
-                    LIMIT 1
-                )
+                WHERE id = %s
                 """,
                 (
                     texto,
                     Json(dados_json),
-                    document_id,
+                    ocr_result_id,
                 ),
             )
-
             conn.commit()
 
 
-def update_result_error(document_id: int, error_message: str):
-
+def update_result_error(ocr_result_id: int, error_message: str):
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 UPDATE ocr_results
@@ -146,27 +125,49 @@ def update_result_error(document_id: int, error_message: str):
                     status = 'ERROR',
                     erro = %s,
                     updated_at = NOW()
-                WHERE id = (
-                    SELECT id
-                    FROM ocr_results
-                    WHERE document_id = %s
-                    ORDER BY id DESC
-                    LIMIT 1
-                )
+                WHERE id = %s
                 """,
-                (error_message, document_id),
+                (error_message, ocr_result_id),
             )
+            conn.commit()
 
+
+def merge_job_payload(job_id, patch: dict):
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT payload_json
+                FROM automation_jobs
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+
+            current = {}
+            if row and isinstance(row.get("payload_json"), dict):
+                current = row["payload_json"]
+
+            current.update(patch)
+
+            cur.execute(
+                """
+                UPDATE automation_jobs
+                SET payload_json = %s
+                WHERE id = %s
+                """,
+                (Json(current), job_id),
+            )
             conn.commit()
 
 
 def extrair_texto_imagem_google(file_path: str) -> str:
-
     with open(file_path, "rb") as f:
         content = f.read()
 
     image = vision.Image(content=content)
-
     response = vision_client.document_text_detection(image=image)
 
     if response.error.message:
@@ -176,7 +177,6 @@ def extrair_texto_imagem_google(file_path: str) -> str:
         return response.full_text_annotation.text
 
     texts = response.text_annotations
-
     if texts:
         return texts[0].description
 
@@ -184,15 +184,11 @@ def extrair_texto_imagem_google(file_path: str) -> str:
 
 
 def extrair_texto_pdf_nativo(file_path: str) -> str:
-
     partes = []
 
     with fitz.open(file_path) as doc:
-
         for page in doc:
-
             texto = page.get_text("text")
-
             if texto:
                 partes.append(texto)
 
@@ -200,19 +196,14 @@ def extrair_texto_pdf_nativo(file_path: str) -> str:
 
 
 def extrair_texto_pdf_ocr_google(file_path: str) -> str:
-
     partes = []
 
     with fitz.open(file_path) as doc:
-
         for page_index, page in enumerate(doc):
-
             pix = page.get_pixmap(dpi=300, alpha=False)
-
             png_bytes = pix.tobytes("png")
 
             image = vision.Image(content=png_bytes)
-
             response = vision_client.document_text_detection(image=image)
 
             if response.error.message:
@@ -224,7 +215,6 @@ def extrair_texto_pdf_ocr_google(file_path: str) -> str:
 
             if response.full_text_annotation and response.full_text_annotation.text:
                 page_text = response.full_text_annotation.text
-
             elif response.text_annotations:
                 page_text = response.text_annotations[0].description
 
@@ -235,14 +225,11 @@ def extrair_texto_pdf_ocr_google(file_path: str) -> str:
 
 
 def extrair_texto_documento(file_path: str) -> str:
-
     if _is_image(file_path):
         return extrair_texto_imagem_google(file_path)
 
     if _is_pdf(file_path):
-
         texto_nativo = extrair_texto_pdf_nativo(file_path)
-
         texto_ocr = extrair_texto_pdf_ocr_google(file_path)
 
         if len(texto_ocr) > len(texto_nativo):
@@ -256,7 +243,6 @@ def extrair_texto_documento(file_path: str) -> str:
 
 
 def interpretar_texto(prompt: str, texto: str):
-
     openai_client = get_openai_client()
 
     completion = openai_client.chat.completions.create(
@@ -281,36 +267,55 @@ def interpretar_texto(prompt: str, texto: str):
     )
 
     content = completion.choices[0].message.content or ""
-
     return _safe_json_loads(content)
 
 
-def chamar_pipeline_backend(document_id: int, categoria: str, dados: dict):
-
+def chamar_pipeline_backend(
+    document_id: int,
+    ocr_result_id: int,
+    categoria: str,
+    dados: dict,
+):
     backend_url = os.getenv("BACKEND_INTERNAL_URL", "http://geoincra_backend:8000")
-
     url = f"{backend_url}/internal/ocr/pipeline"
 
     payload = {
         "document_id": document_id,
+        "ocr_result_id": ocr_result_id,
         "categoria": categoria,
-        "dados": dados
+        "dados": dados,
     }
 
-    response = requests.post(url, json=payload, timeout=60)
+    response = requests.post(url, json=payload, timeout=120)
+
+    data = {}
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
 
     if response.status_code != 200:
         raise Exception(
             f"Erro ao chamar pipeline backend: {response.status_code} {response.text}"
         )
 
+    if not bool(data.get("success")):
+        detalhes = data.get("pipeline_details") or {}
+        errors = detalhes.get("errors") or []
+        if errors:
+            raise Exception("Pipeline técnico falhou: " + " | ".join(errors))
+        raise Exception("Pipeline técnico retornou falha sem detalhes.")
+
+    return data
+
 
 def executar_ocr_job(job: dict):
-
     payload = job.get("payload_json") or {}
 
+    job_id = job.get("id")
     document_id = payload.get("document_id")
     prompt_id = payload.get("prompt_id")
+    ocr_result_id = payload.get("ocr_result_id")
 
     if not document_id:
         raise Exception("Payload OCR inválido: document_id ausente")
@@ -318,20 +323,19 @@ def executar_ocr_job(job: dict):
     if not prompt_id:
         raise Exception("Payload OCR inválido: prompt_id ausente")
 
-    doc = get_document(document_id)
+    if not ocr_result_id:
+        raise Exception("Payload OCR inválido: ocr_result_id ausente")
 
+    doc = get_document(document_id)
     if not doc:
         raise Exception("Documento não encontrado")
 
     prompt = get_prompt(prompt_id)
-
     if not prompt:
         raise Exception("Prompt não encontrado")
 
     try:
-
         relative_path = doc.get("file_path")
-
         if not relative_path:
             raise Exception("Documento sem file_path")
 
@@ -348,22 +352,58 @@ def executar_ocr_job(job: dict):
 
         dados = interpretar_texto(prompt["prompt"], texto)
 
-        update_result_success(document_id, texto, dados)
+        update_result_success(ocr_result_id, texto, dados)
+
+        if job_id:
+            merge_job_payload(
+                job_id,
+                {
+                    "ocr_stage": "OCR_DONE",
+                    "ocr_result_id": ocr_result_id,
+                    "document_id": document_id,
+                    "prompt_id": prompt_id,
+                },
+            )
 
         print("✅ OCR concluído")
-
         print("⚙️ Chamando pipeline técnico no backend...")
 
-        chamar_pipeline_backend(
-            document_id,
-            prompt.get("categoria"),
-            dados
+        pipeline_data = chamar_pipeline_backend(
+            document_id=document_id,
+            ocr_result_id=ocr_result_id,
+            categoria=prompt.get("categoria"),
+            dados=dados,
         )
 
-        print("✅ Pipeline executado via backend")
+        if job_id:
+            merge_job_payload(
+                job_id,
+                {
+                    "pipeline_success": bool(pipeline_data.get("success")),
+                    "pipeline_details": pipeline_data.get("pipeline_details") or {},
+                    "pipeline_warning": None,
+                    "ocr_error": None,
+                },
+            )
+
+        print(
+            "✅ Pipeline executado via backend",
+            json.dumps(
+                pipeline_data.get("pipeline_details", {}),
+                ensure_ascii=False,
+            ),
+        )
 
     except Exception as e:
+        update_result_error(ocr_result_id, str(e))
 
-        update_result_error(document_id, str(e))
+        if job_id:
+            merge_job_payload(
+                job_id,
+                {
+                    "pipeline_success": False,
+                    "ocr_error": str(e),
+                },
+            )
 
         raise

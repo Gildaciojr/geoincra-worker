@@ -43,9 +43,6 @@ def fetch_pending_job():
 
 
 def fetch_ri_digital_credentials(user_id: int):
-    """
-    Credenciais RI Digital armazenadas em external_credentials.
-    """
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
@@ -62,9 +59,6 @@ def fetch_ri_digital_credentials(user_id: int):
 
 
 def update_job_status(job_id, status, error_message=None):
-    """
-    Atualiza status do job e finaliza timestamps quando COMPLETED/FAILED.
-    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -84,10 +78,6 @@ def update_job_status(job_id, status, error_message=None):
 
 
 def create_document(project_id, filename, file_path):
-    """
-    Salva o PDF como Document do projeto (tabela documents).
-    Retorna document_id.
-    """
     if not project_id:
         return None
 
@@ -120,10 +110,6 @@ def create_document(project_id, filename, file_path):
 
 
 def insert_result(job_id, data: dict):
-    """
-    Insere resultado genérico na automation_results.
-    Usa .get defensivo para evitar crash por campo ausente.
-    """
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
