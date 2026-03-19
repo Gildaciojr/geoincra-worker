@@ -11,7 +11,7 @@ from psycopg2.extras import Json, RealDictCursor
 from settings import BACKEND_UPLOADS_BASE, DATABASE_URL
 
 # 🔴 NOVO IMPORT (SEGURANÇA TOTAL)
-from app.services.ocr_normalizer import normalizar_dados_ocr
+from services.ocr_normalizer import normalizar_dados_ocr
 
 
 vision_client = vision.ImageAnnotatorClient()
