@@ -10,6 +10,9 @@ from psycopg2.extras import Json, RealDictCursor
 
 from settings import BACKEND_UPLOADS_BASE, DATABASE_URL
 
+# 🔴 NOVO IMPORT (SEGURANÇA TOTAL)
+from app.services.ocr_normalizer import normalizar_dados_ocr
+
 
 vision_client = vision.ImageAnnotatorClient()
 
@@ -59,7 +62,8 @@ def _safe_json_loads(content: str):
     try:
         return json.loads(content)
     except Exception:
-        return {"resultado": content}
+        # 🔴 NÃO QUEBRA PIPELINE, MAS PRESERVA DADO
+        return {"_raw_output": content}
 
 
 def get_document(document_id: int):
@@ -350,7 +354,10 @@ def executar_ocr_job(job: dict):
 
         print("🧠 Interpretando com OpenAI")
 
-        dados = interpretar_texto(prompt["prompt"], texto)
+        dados_raw = interpretar_texto(prompt["prompt"], texto)
+
+        # 🔴 NORMALIZAÇÃO SEGURA
+        dados = normalizar_dados_ocr(dados_raw)
 
         update_result_success(ocr_result_id, texto, dados)
 
@@ -365,7 +372,7 @@ def executar_ocr_job(job: dict):
                 },
             )
 
-        print("✅ OCR concluído")
+        print("✅ OCR concluído (com normalização)")
         print("⚙️ Chamando pipeline técnico no backend...")
 
         pipeline_data = chamar_pipeline_backend(
