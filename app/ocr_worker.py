@@ -10,9 +10,6 @@ from psycopg2.extras import Json, RealDictCursor
 
 from settings import BACKEND_UPLOADS_BASE, DATABASE_URL
 
-# 🔴 NOVO IMPORT (SEGURANÇA TOTAL)
-from services.ocr_normalizer import normalizar_dados_ocr
-
 
 vision_client = vision.ImageAnnotatorClient()
 
@@ -357,7 +354,7 @@ def executar_ocr_job(job: dict):
         dados_raw = interpretar_texto(prompt["prompt"], texto)
 
         # 🔴 NORMALIZAÇÃO SEGURA
-        dados = normalizar_dados_ocr(dados_raw)
+        dados = dados_raw
 
         update_result_success(ocr_result_id, texto, dados)
 
