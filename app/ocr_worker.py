@@ -354,25 +354,30 @@ def executar_ocr_job(job: dict):
         dados_raw = interpretar_texto(prompt["prompt"], texto)
 
         # =========================================================
-        # 🔥 NORMALIZAÇÃO ESTRUTURADA (PADRÃO PROFISSIONAL)
+        # 🔥 VALIDAÇÃO LEVE DO PAYLOAD OCR (WORKER)
         # =========================================================
+        print("🧩 Validação leve do payload OCR (worker)")
+
         try:
-            from app.schemas.ocr_result_structured import OCRStructured
+            if not isinstance(dados_raw, dict):
+                raise ValueError("Resposta da IA não é um JSON válido (dict)")
 
-            print("🧩 Normalizando estrutura OCR (OCRStructured)")
+            # 🔒 sanity check mínimo (sem impor schema do backend)
+            if not dados_raw:
+                print("⚠️ OCR retornou JSON vazio")
 
-            dados_normalizados = OCRStructured(**dados_raw).model_dump()
-
-            dados = dados_normalizados
+            dados = dados_raw
 
         except Exception as norm_error:
-            print("⚠️ Falha na normalização OCRStructured")
+            print("⚠️ Falha na validação leve do OCR no worker")
             print("Erro:", str(norm_error))
             print("📦 Payload recebido da IA:")
             print(json.dumps(dados_raw, ensure_ascii=False, indent=2))
 
-            # 🔒 fallback seguro (NÃO quebra sistema)
-            dados = dados_raw
+            # 🔒 fallback seguro (não quebra pipeline)
+            dados = {
+                "_raw_output": dados_raw
+            }
 
         # =========================================================
 
