@@ -353,8 +353,28 @@ def executar_ocr_job(job: dict):
 
         dados_raw = interpretar_texto(prompt["prompt"], texto)
 
-        # 🔴 NORMALIZAÇÃO SEGURA
-        dados = dados_raw
+        # =========================================================
+        # 🔥 NORMALIZAÇÃO ESTRUTURADA (PADRÃO PROFISSIONAL)
+        # =========================================================
+        try:
+            from app.schemas.ocr_result_structured import OCRStructured
+
+            print("🧩 Normalizando estrutura OCR (OCRStructured)")
+
+            dados_normalizados = OCRStructured(**dados_raw).model_dump()
+
+            dados = dados_normalizados
+
+        except Exception as norm_error:
+            print("⚠️ Falha na normalização OCRStructured")
+            print("Erro:", str(norm_error))
+            print("📦 Payload recebido da IA:")
+            print(json.dumps(dados_raw, ensure_ascii=False, indent=2))
+
+            # 🔒 fallback seguro (NÃO quebra sistema)
+            dados = dados_raw
+
+        # =========================================================
 
         update_result_success(ocr_result_id, texto, dados)
 
