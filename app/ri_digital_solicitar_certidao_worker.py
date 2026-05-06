@@ -100,7 +100,49 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
     cidade = payload["cidade"]
     cartorio = payload["cartorio"]
-    matricula = payload["matricula"]
+
+    # =========================================================
+    # MATRÍCULAS (NOVO PADRÃO + COMPATIBILIDADE LEGADA)
+    # =========================================================
+    matriculas = payload.get("matriculas") or []
+
+    # ---------------------------------------------------------
+    # COMPATIBILIDADE COM JOBS ANTIGOS
+    # ---------------------------------------------------------
+    if not matriculas:
+
+        matricula_legacy = payload.get("matricula")
+
+        if matricula_legacy:
+            matriculas = [str(matricula_legacy).strip()]
+
+    # =========================================================
+    # NORMALIZAÇÃO DEFENSIVA
+    # =========================================================
+    matriculas_normalizadas: list[str] = []
+
+    for item in matriculas:
+
+        valor = str(item or "").strip()
+
+        if not valor:
+            continue
+
+        if valor not in matriculas_normalizadas:
+            matriculas_normalizadas.append(valor)
+
+    # =========================================================
+    # VALIDAÇÕES
+    # =========================================================
+    if not matriculas_normalizadas:
+        raise Exception("Nenhuma matrícula válida informada")
+
+    # ---------------------------------------------------------
+    # LIMITE DE SEGURANÇA ANTI-BLOQUEIO
+    # ---------------------------------------------------------
+    if len(matriculas_normalizadas) > 2:
+        raise Exception("Máximo permitido: 2 matrículas")
+
     finalidade = str(payload["finalidade"])
 
     project_id = job.get("project_id")
@@ -460,26 +502,95 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             # aguarda ASP.NET atualizar tela
             ctx.wait_for_selector("#txtTag", timeout=60000)
 
-                       # ------------------------------------------------
-            # MATRÍCULA
+            # ------------------------------------------------
+            # MATRÍCULAS
             # ------------------------------------------------
 
-            print(f"➡ Informando matrícula {matricula}")
+            print(
+                f"➡ Informando matrículas: "
+                f"{', '.join(matriculas_normalizadas)}"
+            )
 
             ctx.wait_for_selector("#txtTag", timeout=60000)
 
-            ctx.fill("#txtTag", "")
+            # =================================================
+            # INSERÇÃO CONTROLADA DAS MATRÍCULAS
+            # =================================================
+            for indice, matricula_atual in enumerate(
+                matriculas_normalizadas,
+                start=1,
+            ):
 
-            ctx.fill("#txtTag", matricula)
+                print(
+                    f"➡ Adicionando matrícula "
+                    f"{indice}/{len(matriculas_normalizadas)}: "
+                    f"{matricula_atual}"
+                )
 
-            # confirmar matrícula (teclado pertence à page, não ao frame)
-            page.keyboard.press("Enter")
+                # ---------------------------------------------
+                # LIMPA INPUT
+                # ---------------------------------------------
+                ctx.fill("#txtTag", "")
 
-            page.wait_for_timeout(1000)
+                page.wait_for_timeout(300)
+
+                # ---------------------------------------------
+                # PREENCHE MATRÍCULA
+                # ---------------------------------------------
+                ctx.fill("#txtTag", matricula_atual)
+
+                page.wait_for_timeout(300)
+
+                # ---------------------------------------------
+                # CONFIRMA INSERÇÃO
+                # ---------------------------------------------
+                page.keyboard.press("Enter")
+
+                # ---------------------------------------------
+                # AGUARDA ASP.NET PROCESSAR ITEM
+                # ---------------------------------------------
+                page.wait_for_timeout(1500)
+
+                try:
+
+                    ctx.wait_for_function(
+                        """
+                        () => {
+                            const tabela =
+                                document.querySelector("table tbody");
+
+                            if (!tabela) {
+                                return false;
+                            }
+
+                            return tabela.innerText.length > 0;
+                        }
+                        """,
+                        timeout=15000,
+                    )
+
+                except Exception:
+
+                    print(
+                        f"⚠ Timeout aguardando renderização da matrícula "
+                        f"{matricula_atual}"
+                    )
+
+            print(
+                f"✔ Total de matrículas adicionadas: "
+                f"{len(matriculas_normalizadas)}"
+            )
+
+            # ------------------------------------------------
+            # PROSSEGUIR
+            # ------------------------------------------------
 
             print("➡ Prosseguindo")
 
-            _wait_enabled(ctx, "#PorMatriculaComComplemento_btnGoNext")
+            _wait_enabled(
+                ctx,
+                "#PorMatriculaComComplemento_btnGoNext",
+            )
 
             ctx.click("#PorMatriculaComComplemento_btnGoNext")
 
@@ -497,48 +608,95 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
 
             linhas = ctx.locator("table tbody tr").all()
 
-            for linha in linhas:
+            for indice_linha, linha in enumerate(linhas, start=1):
 
-                colunas = linha.locator("td").all()
+                try:
 
-                # tabela esperada:
-                # 0 detalhes
-                # 1 número
-                # 2 cartório
-                # 3 tipo certidão
-                # 4 tipo pedido
-                # 5 prazo
-                # 6 valor
-                # 7 excluir
-                if len(colunas) < 7:
-                    continue
+                    colunas = linha.locator("td").all()
 
-                numero = colunas[1].inner_text().strip()
-                cartorio_nome = colunas[2].inner_text().strip()
-                tipo_certidao = colunas[3].inner_text().strip()
-                tipo_pedido = colunas[4].inner_text().strip()
-                prazo = colunas[5].inner_text().strip()
-                valor = colunas[6].inner_text().strip()
+                    # tabela esperada:
+                    # 0 detalhes
+                    # 1 número
+                    # 2 cartório
+                    # 3 tipo certidão
+                    # 4 tipo pedido
+                    # 5 prazo
+                    # 6 valor
+                    # 7 excluir
+                    if len(colunas) < 7:
 
-                # ignora linha total / vazias
-                if not numero:
-                    continue
+                        print(
+                            f"⚠ Linha ignorada "
+                            f"(menos de 7 colunas): {len(colunas)}"
+                        )
 
-                if numero.lower() == "total":
-                    continue
+                        continue
 
-                resultados.append(
-                    {
-                        "numero": numero,
-                        "cartorio": cartorio_nome,
-                        "tipo_certidao": tipo_certidao,
-                        "tipo_pedido": tipo_pedido,
-                        "prazo": prazo,
-                        "valor": valor,
-                    }
-                )
+                    numero = colunas[1].inner_text().strip()
+                    cartorio_nome = colunas[2].inner_text().strip()
+                    tipo_certidao = colunas[3].inner_text().strip()
+                    tipo_pedido = colunas[4].inner_text().strip()
+                    prazo = colunas[5].inner_text().strip()
+                    valor = colunas[6].inner_text().strip()
 
-            print(f"✔ Itens capturados da tabela: {len(resultados)}")
+                    # ------------------------------------------------
+                    # IGNORA LINHAS INVÁLIDAS
+                    # ------------------------------------------------
+                    if not numero:
+                        continue
+
+                    if numero.lower() == "total":
+                        continue
+
+                    # ------------------------------------------------
+                    # MATRÍCULA RELACIONADA
+                    # ------------------------------------------------
+                    matricula_relacionada = None
+
+                    if indice_linha <= len(matriculas_normalizadas):
+
+                        matricula_relacionada = (
+                            matriculas_normalizadas[indice_linha - 1]
+                        )
+
+                    elif matriculas_normalizadas:
+
+                        # fallback defensivo
+                        matricula_relacionada = (
+                            matriculas_normalizadas[0]
+                        )
+
+                    resultados.append(
+                        {
+                            "numero": numero,
+                            "cartorio": cartorio_nome,
+                            "tipo_certidao": tipo_certidao,
+                            "tipo_pedido": tipo_pedido,
+                            "prazo": prazo,
+                            "valor": valor,
+                            "matricula": matricula_relacionada,
+                            "indice_linha": indice_linha,
+                        }
+                    )
+
+                    print(
+                        f"✔ Linha capturada "
+                        f"[{indice_linha}] "
+                        f"Matrícula: {matricula_relacionada} "
+                        f"Protocolo: {numero}"
+                    )
+
+                except Exception as linha_error:
+
+                    print(
+                        f"⚠ Erro ao processar linha "
+                        f"{indice_linha}: {str(linha_error)}"
+                    )
+
+            print(
+                f"✔ Itens capturados da tabela: "
+                f"{len(resultados)}"
+            )
 
             # ------------------------------------------------
             # FINALIDADE
@@ -644,19 +802,30 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
                     if pdf_path:
                         relative_path = f"ri-digital/{Path(pdf_path).name}"
 
+                    matricula_resultado = (
+                        r.get("matricula")
+                        or (
+                            matriculas_normalizadas[i]
+                            if i < len(matriculas_normalizadas)
+                            else matriculas_normalizadas[0]
+                        )
+                    )
+
                     metadata = {
                         "tipo_certidao": r["tipo_certidao"],
                         "tipo_pedido": r["tipo_pedido"],
                         "prazo": r["prazo"],
                         "valor": r["valor"],
                         "pdf_status": "OK" if pdf_path else "NAO_DISPONIVEL",
+                        "matriculas_solicitadas": matriculas_normalizadas,
+                        "indice_resultado": i + 1,
                     }
 
                     insert_result(
                         job["id"],
                         {
                             "protocolo": r["numero"],
-                            "matricula": matricula,
+                            "matricula": matricula_resultado,
                             "cartorio": r["cartorio"],
                             "data_pedido": None,
                             "file_path": relative_path,
@@ -677,19 +846,27 @@ def executar_job_ri_digital_solicitar_certidao(job, login, senha):
             else:
 
                 # fallback: se não conseguiu capturar tabela, ainda salva PDFs
-                for pdf_path in arquivos_pdf:
+                for i, pdf_path in enumerate(arquivos_pdf):
 
                     relative_path = f"ri-digital/{Path(pdf_path).name}"
 
+                    matricula_resultado = (
+                        matriculas_normalizadas[i]
+                        if i < len(matriculas_normalizadas)
+                        else matriculas_normalizadas[0]
+                    )
+
                     metadata = {
-                        "pdf_status": "OK"
+                        "pdf_status": "OK",
+                        "matriculas_solicitadas": matriculas_normalizadas,
+                        "indice_resultado": i + 1,
                     }
 
                     insert_result(
                         job["id"],
                         {
                             "protocolo": None,
-                            "matricula": matricula,
+                            "matricula": matricula_resultado,
                             "cartorio": cartorio,
                             "data_pedido": None,
                             "file_path": relative_path,
