@@ -232,7 +232,7 @@ def update_result_success(
 
                     prompt_nome = %s,
 
-                    categoria = %s,
+                    pipeline_tipo = %s,
 
                     modelo_llm = %s,
 
@@ -270,7 +270,12 @@ def update_result_success(
 
                     prompt.get("nome"),
 
-                    prompt.get("categoria"),
+                    
+                    (
+                        prompt.get("pipeline")
+                        or prompt.get("categoria")
+                        or "MATRICULA_COMPLETA",
+                    ),
 
                     prompt.get("modelo_llm"),
 
@@ -313,7 +318,7 @@ def update_result_error(
 
             provider = "GOOGLE_VISION_OPENAI"
 
-            categoria = None
+            pipeline_tipo = None
             prompt_nome = None
             modelo_llm = None
             parser_utilizado = None
@@ -327,7 +332,10 @@ def update_result_error(
                     or provider
                 )
 
-                categoria = prompt.get("categoria")
+                pipeline_tipo = (
+                    prompt.get("pipeline")
+                    or prompt.get("categoria")
+                )
 
                 prompt_nome = prompt.get("nome")
 
@@ -354,7 +362,7 @@ def update_result_error(
 
                     provider = %s,
 
-                    categoria = %s,
+                    pipeline_tipo = %s,
 
                     prompt_nome = %s,
 
@@ -375,7 +383,7 @@ def update_result_error(
                 (
                     provider,
 
-                    categoria,
+                    pipeline_tipo,
 
                     prompt_nome,
 
@@ -862,7 +870,10 @@ def executar_ocr_job(job: dict):
         pipeline_data = chamar_pipeline_backend(
             document_id=document_id,
             ocr_result_id=ocr_result_id,
-            categoria=prompt.get("categoria"),
+            categoria=(
+                prompt.get("pipeline")
+                or prompt.get("categoria")
+            ),
             dados=dados,
         )
 
